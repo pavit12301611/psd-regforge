@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Icon from './Icon';
 
 export type ToastTone = 'success' | 'error' | 'info';
 
@@ -14,6 +15,12 @@ const TONE_CLASS: Record<ToastTone, string> = {
   success: 'border-emerald-400/40 bg-emerald-500/15 text-emerald-100',
   error: 'border-rose-400/40 bg-rose-500/15 text-rose-100',
   info: 'border-white/[0.16] bg-ink-700/95 text-slate-100',
+};
+
+const TONE_ICON: Record<ToastTone, 'check' | 'close' | 'spark'> = {
+  success: 'check',
+  error: 'close',
+  info: 'spark',
 };
 
 /** Small toast queue with auto-dismiss; used for copy/download/delete feedback. */
@@ -60,21 +67,27 @@ export function ToastStack({
     <div
       aria-live="polite"
       role="status"
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-2 p-4 sm:items-end"
+      className="toast-stack pointer-events-none fixed inset-x-0 z-50 flex flex-col items-center gap-2 px-3 sm:items-end sm:px-4"
     >
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-xl border px-3.5 py-3 text-sm shadow-xl shadow-black/40 backdrop-blur ${TONE_CLASS[toast.tone]}`}
+          className={`pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-2xl border px-3.5 py-3 text-sm shadow-xl shadow-black/40 backdrop-blur ${TONE_CLASS[toast.tone]}`}
         >
-          <span className="flex-1 break-words">{toast.message}</span>
+          <span
+            aria-hidden
+            className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-black/20"
+          >
+            <Icon name={TONE_ICON[toast.tone]} className="h-3.5 w-3.5" strokeWidth={2.4} />
+          </span>
+          <span className="flex-1 break-words leading-snug">{toast.message}</span>
           <button
             type="button"
             onClick={() => onDismiss(toast.id)}
-            className="rounded-lg px-1.5 text-xs text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            className="-mr-1 -mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
             aria-label="Dismiss notification"
           >
-            ✕
+            <Icon name="close" className="h-4 w-4" />
           </button>
         </div>
       ))}

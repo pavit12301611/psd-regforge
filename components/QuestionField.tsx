@@ -31,17 +31,17 @@ export default function QuestionField({ question, value, onChange, number, inval
   return (
     <div
       id={`q-${question.id}`}
-      className={`scroll-mt-28 rounded-2xl border p-4 transition ${
+      className={`scroll-mt-[9rem] rounded-2xl border p-3.5 transition sm:p-4 ${
         invalid ? 'border-rose-400/50 bg-rose-500/[0.06]' : 'border-white/10 bg-white/[0.02]'
       }`}
     >
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-white/[0.07] text-[11px] font-bold text-slate-300">
+      <div className="flex items-start gap-2.5 sm:gap-3">
+        <span className="mt-px grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-white/[0.07] text-[11px] font-bold text-slate-300">
           {number}
         </span>
         <label
           id={labelId}
-          className="label flex-1"
+          className="label min-w-0 flex-1 leading-snug"
           htmlFor={labelTargetsField ? fieldId : undefined}
         >
           {question.label}
@@ -70,18 +70,21 @@ export default function QuestionField({ question, value, onChange, number, inval
             onChange={(e) => onChange(e.target.value)}
             aria-invalid={invalid ? true : undefined}
             aria-describedby={question.help ? helpId : undefined}
+            autoComplete="off"
+            enterKeyHint="next"
           />
         )}
 
         {question.type === 'textarea' && (
           <textarea
             id={fieldId}
-            className="input min-h-[104px] resize-y leading-relaxed"
+            className="input min-h-[7rem] resize-y leading-relaxed"
             placeholder={question.placeholder}
             value={(value as string) ?? ''}
             onChange={(e) => onChange(e.target.value)}
             aria-invalid={invalid ? true : undefined}
             aria-describedby={question.help ? helpId : undefined}
+            enterKeyHint="done"
           />
         )}
 
@@ -99,7 +102,7 @@ export default function QuestionField({ question, value, onChange, number, inval
         )}
 
         {question.type === 'rating' && (
-          <div className="flex flex-wrap gap-2" role="group" aria-label={question.label}>
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label={question.label}>
             {[1, 2, 3, 4, 5].map((n) => (
               <button
                 key={n}
@@ -107,7 +110,7 @@ export default function QuestionField({ question, value, onChange, number, inval
                 onClick={() => onChange(value === n ? undefined : n)}
                 aria-pressed={value === n}
                 aria-label={`${n} out of 5`}
-                className={`h-11 w-11 rounded-xl border text-sm font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-spark-400/70 ${
+                className={`h-12 w-12 rounded-xl border text-base font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-spark-400/70 sm:h-11 sm:w-11 sm:text-sm ${
                   value === n
                     ? 'border-spark-400/60 bg-spark-500/20 text-white'
                     : 'border-white/[0.12] bg-white/[0.04] text-slate-300 hover:border-white/30'
@@ -116,9 +119,7 @@ export default function QuestionField({ question, value, onChange, number, inval
                 {n}
               </button>
             ))}
-            <span className="self-center text-xs text-slate-400">
-              {value ? `${value} / 5` : 'Not rated yet'}
-            </span>
+            <span className="text-xs text-slate-400">{value ? `${value} / 5` : 'Not rated yet'}</span>
           </div>
         )}
 
@@ -134,11 +135,11 @@ export default function QuestionField({ question, value, onChange, number, inval
                 <input
                   type="radio"
                   name={question.id}
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-spark-500"
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-spark-500"
                   checked={value === option}
                   onChange={() => onChange(value === option ? undefined : option)}
                 />
-                <span>{option}</span>
+                <span className="min-w-0 leading-snug">{option}</span>
               </label>
             ))}
           </div>
@@ -155,23 +156,25 @@ export default function QuestionField({ question, value, onChange, number, inval
               >
                 <input
                   type="checkbox"
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-spark-500"
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-spark-500"
                   checked={selected.includes(option)}
                   onChange={() => toggleOption(option)}
                 />
-                <span>{option}</span>
+                <span className="min-w-0 leading-snug">{option}</span>
               </label>
             ))}
             {selected.length > 0 && (
-              <p className="text-xs text-slate-400 sm:col-span-2">
-                {selected.length} selected —{' '}
-                <button
-                  type="button"
-                  className="rounded underline hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-spark-400/70"
-                  onClick={() => onChange([])}
-                >
-                  clear
-                </button>
+              <p className="flex items-center gap-1.5 text-xs text-slate-400 sm:col-span-2">
+                <span>
+                  {selected.length} selected —{' '}
+                  <button
+                    type="button"
+                    className="rounded underline hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-spark-400/70"
+                    onClick={() => onChange([])}
+                  >
+                    clear all
+                  </button>
+                </span>
               </p>
             )}
           </div>

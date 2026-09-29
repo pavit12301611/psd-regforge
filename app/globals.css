@@ -4,6 +4,21 @@
 
 :root {
   color-scheme: dark;
+
+  /* Fixed chrome heights — sticky offsets elsewhere depend on these. */
+  --topbar-h: 3.5rem;
+  --mobile-bar-h: 3.25rem;
+  --bottom-bar-h: 0px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+}
+
+@media (min-width: 640px) {
+  :root {
+    --topbar-h: 4rem;
+  }
 }
 
 html,
@@ -11,12 +26,35 @@ body {
   min-height: 100%;
 }
 
+html {
+  /* Keep the page from zooming after rotating a phone into landscape. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 body {
   @apply bg-ink-900 text-slate-200 antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The brand glow lives on a fixed layer: `background-attachment: fixed` repaints
+   on every scroll frame in iOS Safari, this does not. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-image:
     radial-gradient(60rem 40rem at 12% -10%, rgba(109, 92, 255, 0.22), transparent 60%),
     radial-gradient(50rem 32rem at 95% 0%, rgba(0, 209, 178, 0.12), transparent 55%);
-  background-attachment: fixed;
 }
 
 @layer base {
@@ -38,6 +76,23 @@ body {
     background: rgba(109, 92, 255, 0.45);
     color: #fff;
   }
+
+  /* iOS Safari zooms any focused control that renders below 16px, which throws
+     the whole layout sideways mid-typing. Every text control is 16px on phones
+     (see .input / .input-bare below) and steps back down from 640px up. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  @media (min-width: 640px) {
+    input,
+    textarea,
+    select {
+      font-size: inherit;
+    }
+  }
 }
 
 @layer components {
@@ -46,13 +101,15 @@ body {
   }
 
   .card-pad {
-    @apply card p-5 sm:p-6;
+    @apply card p-4 sm:p-6;
   }
 
+  /* Tap targets: 44px minimum on phones, tighter from 640px up. */
   .btn {
     @apply inline-flex select-none items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
       transition focus:outline-none focus-visible:ring-2 focus-visible:ring-spark-400/70
       disabled:cursor-not-allowed disabled:opacity-50;
+    min-height: 2.75rem;
   }
 
   .btn-primary {
@@ -69,12 +126,29 @@ body {
 
   .btn-sm {
     @apply rounded-lg px-3 py-1.5 text-xs;
+    min-height: 2.5rem;
+  }
+
+  /* Square icon-only button, always at least 44px on phones. */
+  .btn-icon {
+    @apply inline-grid place-items-center rounded-xl border border-white/[0.12] bg-white/[0.04] text-slate-200
+      transition hover:border-white/25 hover:bg-white/[0.08] focus:outline-none focus-visible:ring-2
+      focus-visible:ring-spark-400/70;
+    height: 2.75rem;
+    width: 2.75rem;
   }
 
   .input {
-    @apply w-full rounded-xl border border-white/[0.12] bg-ink-800/80 px-3.5 py-2.5 text-sm text-slate-100
+    @apply w-full rounded-xl border border-white/[0.12] bg-ink-800/80 px-3.5 py-2.5 text-base text-slate-100
       placeholder:text-slate-500 transition focus:border-spark-400/70 focus:outline-none
-      focus:ring-2 focus:ring-spark-500/25;
+      focus:ring-2 focus:ring-spark-500/25 sm:text-sm;
+    min-height: 2.875rem;
+  }
+
+  /* Borderless text control used inside a custom frame (see CurrencyField). */
+  .input-bare {
+    @apply w-full bg-transparent text-base text-slate-100 placeholder:text-slate-500 focus:outline-none sm:text-sm;
+    min-height: 2.75rem;
   }
 
   .label {
@@ -82,7 +156,7 @@ body {
   }
 
   .help {
-    @apply mt-1 text-xs text-slate-400;
+    @apply mt-1 text-xs leading-relaxed text-slate-400;
   }
 
   .chip {
@@ -101,10 +175,17 @@ body {
   .option {
     @apply flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3
       text-sm transition hover:border-white/25 hover:bg-white/[0.06];
+    min-height: 3rem;
   }
 
   .option-on {
     @apply border-spark-400/60 bg-spark-500/15;
+  }
+
+  /* Native controls need a bigger box than the label text on touch screens. */
+  .option input[type='checkbox'],
+  .option input[type='radio'] {
+    @apply mt-0.5 h-5 w-5 shrink-0 accent-spark-500;
   }
 
   .bar {
@@ -120,6 +201,129 @@ body {
   }
 
   .muted {
-    @apply text-sm text-slate-400;
+    @apply text-sm leading-relaxed text-slate-400;
   }
+
+  /* Full-bleed horizontal rail: chips scroll edge to edge on phones without
+     dragging the surrounding card's padding with them. */
+  .hscroll {
+    @apply -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:px-0;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .hscroll > * {
+    scroll-snap-align: start;
+  }
+
+  .hscroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Slim meta grid used on cards: label + value, no wasted vertical space. */
+  .meta-row {
+    @apply flex items-baseline justify-between gap-3 border-b border-white/[0.07] py-1.5 last:border-b-0;
+  }
+
+  .meta-key {
+    @apply shrink-0 text-[11px] uppercase tracking-wider text-slate-500;
+  }
+
+  .meta-value {
+    @apply truncate text-right text-xs text-slate-200;
+  }
+}
+
+@layer utilities {
+  /* Sticky surfaces that sit under the top bar. */
+  .sticky-under-topbar {
+    top: var(--topbar-h);
+  }
+
+  .pad-safe-x {
+    padding-left: var(--safe-l);
+    padding-right: var(--safe-r);
+  }
+
+  .pad-safe-bottom {
+    padding-bottom: var(--safe-b);
+  }
+
+  /* Content that must clear the floating bottom action bar. */
+  .clear-bottom-bar {
+    padding-bottom: calc(var(--bottom-bar-h) + var(--safe-b) + 1rem);
+  }
+
+  .tap {
+    @apply transition active:scale-[0.985];
+  }
+}
+
+/* ----------------------------------------------------------- bottom sheets */
+
+.sheet-backdrop {
+  animation: sheet-fade 160ms ease-out;
+}
+
+.sheet-panel {
+  animation: sheet-rise 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (min-width: 640px) {
+  .sheet-panel {
+    animation: sheet-pop 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-backdrop,
+  .sheet-panel {
+    animation: none;
+  }
+}
+
+@keyframes sheet-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-rise {
+  from {
+    transform: translateY(1.5rem);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-pop {
+  from {
+    transform: scale(0.97);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Toasts float above whatever bottom bar the screen shows. */
+.toast-stack {
+  bottom: calc(var(--bottom-bar-h) + var(--safe-b) + 0.75rem);
 }

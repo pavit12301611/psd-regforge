@@ -33,6 +33,30 @@ The creator answer page reads `users/{currentAuthUid}/questionnaires/{token}` di
 the token through the public share index, so an anonymous shared-link client cannot open it, and a Google
 user can only ever open documents inside their own UID path.
 
+## Mobile layout rules
+
+Clients answer these questionnaires on their phones, so every screen is designed phone-first and then
+relaxed from `640px` (`sm:`) up. The rules below are what keep it usable; follow them when adding UI.
+
+- **Tap targets** — `.btn` / `.btn-sm` / `.btn-icon` / `.input` / `.option` all have a minimum height of
+  ~44px on phones. Nothing interactive is smaller, and inline text actions ("clear all") sit inside a
+  sentence where the surrounding row is the real target.
+- **No iOS zoom** — every text control is 16px on phones (`.input` and `.input-bare`). Anything smaller
+  makes Safari zoom the whole layout sideways while typing.
+- **Sticky chrome** — `--topbar-h`, `--mobile-bar-h` and `--bottom-bar-h` are CSS variables. The header is
+  a fixed height, the page's own rail sticks at `top: var(--topbar-h)`, and content that must clear the
+  floating bar uses `.clear-bottom-bar`. Bottom padding always adds `env(safe-area-inset-bottom)`.
+- **Crowded actions become sheets** — anything that would be a row of full-width buttons on a phone
+  (module jump list, export/share, per-questionnaire overflow, account/sign-out, delete confirmation) uses
+  `components/Sheet.tsx`: a bottom sheet on phones, a centred dialog from `sm:` up. `useConfirm()` returns
+  a promise so destructive actions read like `window.confirm` but get a real thumb-sized dialog.
+- **Icons are SVG** (`components/Icon.tsx`) — never emoji or exotic glyphs, which render as tofu boxes on
+  phones without an emoji font.
+- **Full-width lists** use a card per questionnaire with a primary action plus Share/overflow, not six
+  stacked buttons; long lists keep search and the status filter in a sticky container.
+- The questionnaire form keeps a fixed bottom bar (progress + Submit) and a sticky rail with the module
+  jump list, so a 50-question form never needs a trip back to the top.
+
 ## Run locally
 
 ```bash

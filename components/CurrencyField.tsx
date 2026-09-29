@@ -11,6 +11,7 @@ import {
   readAmountEntry,
   shortINR,
 } from '@/lib/money';
+import { useConfirm } from './Sheet';
 
 interface Props {
   /** Stable question id — used for ids, labels and error wiring. */
@@ -50,6 +51,7 @@ export default function CurrencyField({
   const errorId = `${id}-error`;
   const legacyId = `${id}-legacy`;
   const hintId = `${id}-hint`;
+  const { confirm, element: confirmElement } = useConfirm();
 
   const stored = typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
   const canonicalStored = isCanonicalAmount(stored) ? stored : null;
@@ -91,12 +93,15 @@ export default function CurrencyField({
     onChange(canonical ?? undefined);
   }
 
-  function clear(removeLegacy = false) {
-    if (
-      removeLegacy &&
-      !window.confirm('Remove the earlier saved budget answer? This cannot be undone.')
-    ) {
-      return;
+  async function clear(removeLegacy = false) {
+    if (removeLegacy) {
+      const ok = await confirm({
+        title: 'Remove the earlier saved budget answer?',
+        body: 'It was stored before this question became a free-form INR amount, so it is kept exactly as it was saved. Removing it cannot be undone.',
+        confirmLabel: 'Remove answer',
+        tone: 'danger',
+      });
+      if (!ok) return;
     }
     setText('');
     onChange(undefined);
@@ -110,7 +115,7 @@ export default function CurrencyField({
   return (
     <div className="space-y-2">
       <div
-        className={`flex items-center gap-2 rounded-xl border bg-ink-800/80 px-3.5 transition focus-within:ring-2 ${
+        className={`flex items-center gap-1.5 rounded-xl border bg-ink-800/80 pl-3 pr-1.5 transition focus-within:ring-2 sm:gap-2 sm:pl-3.5 sm:pr-2 ${
           invalid
             ? 'border-rose-400/60 focus-within:border-rose-300 focus-within:ring-rose-500/25'
             : 'border-white/[0.12] focus-within:border-spark-400/70 focus-within:ring-spark-500/25'
@@ -122,7 +127,7 @@ export default function CurrencyField({
         <input
           id={inputId}
           ref={inputRef}
-          className="w-full bg-transparent py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+          className="input-bare py-2.5"
           type="text"
           inputMode="decimal"
           autoComplete="off"
@@ -139,8 +144,8 @@ export default function CurrencyField({
         {(text || legacyStored) && (
           <button
             type="button"
-            onClick={() => clear(Boolean(legacyStored))}
-            className="rounded-lg px-2 py-1 text-xs text-slate-400 transition hover:bg-white/[0.08] hover:text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-spark-400/70"
+            onClick={() => void clear(Boolean(legacyStored))}
+            className="grid h-9 shrink-0 place-items-center rounded-lg px-2.5 text-xs text-slate-400 transition hover:bg-white/[0.08] hover:text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-spark-400/70"
             aria-label={legacyStored ? 'Remove earlier saved budget answer' : 'Clear budget amount'}
           >
             Clear
@@ -174,6 +179,8 @@ export default function CurrencyField({
           Enter your budget as an amount in Indian Rupees, or leave it blank if you are not sure yet.
         </p>
       )}
+
+      {confirmElement}
     </div>
   );
 }
