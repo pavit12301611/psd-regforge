@@ -34,6 +34,7 @@ export default function OwnerDashboard() {
   const [copied, setCopied] = useState<string | null>(null);
   const [flash, setFlash] = useState('');
   const [syncError, setSyncError] = useState('');
+  const [origin, setOrigin] = useState('');
 
   useEffect(() => {
     if (!isOwnerSession()) {
@@ -41,6 +42,7 @@ export default function OwnerDashboard() {
       return;
     }
     setReady(true);
+    if (typeof window !== 'undefined') setOrigin(window.location.origin);
   }, [router]);
 
   useEffect(() => {
@@ -64,12 +66,16 @@ export default function OwnerDashboard() {
     );
   }, [items, filter]);
 
+  function fullUrl(token: string) {
+    return `${origin || (typeof window !== 'undefined' ? window.location.origin : '')}/q/${token}`;
+  }
+
   async function copyLink(token: string) {
-    const url = `${window.location.origin}/q/${token}`;
+    const url = fullUrl(token);
     try {
       await navigator.clipboard.writeText(url);
     } catch {
-      window.prompt('Copy this link:', url);
+      window.prompt('Copy this direct link:', url);
     }
     setCopied(token);
     window.setTimeout(() => setCopied(null), 1800);
@@ -176,10 +182,11 @@ export default function OwnerDashboard() {
             {visible.map((item) => {
               const progress = overallProgress(item.answers);
               const link = `/q/${item.token}`;
+              const direct = fullUrl(item.token);
               return (
                 <article key={item.token} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="truncate font-semibold text-white">{item.title}</h3>
                         <span className={`chip ${item.submittedAt ? 'chip-on' : 'chip-wait'}`}>
@@ -195,14 +202,28 @@ export default function OwnerDashboard() {
                         Created {when(item.createdAt)} · Updated {when(item.updatedAt)}
                         {item.submittedAt ? ` · Submitted ${when(item.submittedAt)}` : ''}
                       </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <input
+                          className="input h-8 flex-1 font-mono text-[11px]"
+                          readOnly
+                          value={direct}
+                          onFocus={(e) => e.currentTarget.select()}
+                        />
+                      </div>
+                      <p className="mt-1 text-[10px] text-emerald-300/80">
+                        ✅ Direct link — client clicks and opens instantly, no login / ID required
+                      </p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
                       <button className="btn-ghost btn-sm" onClick={() => copyLink(item.token)}>
-                        {copied === item.token ? 'Link copied ✓' : 'Copy client link'}
+                        {copied === item.token ? 'Link copied ✓' : 'Copy direct link'}
                       </button>
+                      <a href={direct} target="_blank" rel="noopener noreferrer" className="btn-ghost btn-sm">
+                        Open direct ↗
+                      </a>
                       <Link href={link} className="btn-ghost btn-sm">
-                        Open
+                        Preview
                       </Link>
                       <button className="btn-danger btn-sm" onClick={() => remove(item)}>
                         Delete

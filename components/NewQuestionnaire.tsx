@@ -18,6 +18,7 @@ export default function NewQuestionnaire() {
   const [error, setError] = useState('');
   const [created, setCreated] = useState<Questionnaire | null>(null);
   const [copied, setCopied] = useState(false);
+  const [origin, setOrigin] = useState('');
 
   useEffect(() => {
     if (!isOwnerSession()) {
@@ -25,6 +26,8 @@ export default function NewQuestionnaire() {
       return;
     }
     setReady(true);
+    // Capture origin for direct shareable link (Vercel URL included)
+    if (typeof window !== 'undefined') setOrigin(window.location.origin);
   }, [router]);
 
   async function create(e: React.FormEvent) {
@@ -47,7 +50,7 @@ export default function NewQuestionnaire() {
 
   async function copyLink() {
     if (!created) return;
-    const url = `${window.location.origin}/q/${created.token}`;
+    const url = `${origin || (typeof window !== 'undefined' ? window.location.origin : '')}/q/${created.token}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -56,6 +59,8 @@ export default function NewQuestionnaire() {
       window.prompt('Copy this link:', url);
     }
   }
+
+  const fullLink = created ? `${origin || ''}/q/${created.token}` : '';
 
   if (!ready) return null;
 
@@ -146,27 +151,35 @@ export default function NewQuestionnaire() {
             </div>
 
             <div>
-              <label className="label">Client link</label>
+              <label className="label">Direct client link — opens without login</label>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 <input
                   className="input flex-1 font-mono text-xs"
                   readOnly
-                  value={`/q/${created.token}`}
+                  value={fullLink || `/q/${created.token}`}
                   onFocus={(e) => e.currentTarget.select()}
                 />
                 <button className="btn-ghost" type="button" onClick={copyLink}>
-                  {copied ? 'Copied ✓' : 'Copy'}
+                  {copied ? 'Copied ✓' : 'Copy full link'}
                 </button>
               </div>
               <p className="help">
-                Send this to your client. Anyone with the link answers this one questionnaire — no
-                account needed.
+                ✅ This link opens directly — no ID, no PIN needed. Just send it to your client.
+                Anyone with the link can answer this one questionnaire — no account needed.
               </p>
+              {origin && (
+                <p className="mt-2 text-[11px] text-emerald-300">
+                  Direct URL: {fullLink} — client clicks and starts answering instantly.
+                </p>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-2 pt-1">
-              <Link href={`/q/${created.token}`} className="btn-primary">
-                Open questionnaire
+              <a href={fullLink || `/q/${created.token}`} target="_blank" rel="noopener noreferrer" className="btn-primary">
+                Open direct link ↗
+              </a>
+              <Link href={`/q/${created.token}`} className="btn-ghost">
+                Preview here
               </Link>
               <Link href="/owner" className="btn-ghost">
                 Back to dashboard

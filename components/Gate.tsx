@@ -19,8 +19,29 @@ export default function Gate() {
   const [busy, setBusy] = useState(false);
 
   // Already the owner on this browser? Skip the gate.
+  // Also: if URL has ?token=xxx or ?q=xxx or ?link=.../q/xxx, auto-redirect to /q/xxx directly — no ID entry needed on main site
   useEffect(() => {
-    if (getSession()?.role === 'owner') router.replace('/owner');
+    if (getSession()?.role === 'owner') {
+      router.replace('/owner');
+      return;
+    }
+    // Direct link auto-redirect: check query params for token/q/link
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const fromQuery = params.get('token') || params.get('q') || params.get('id') || params.get('link') || '';
+      let t = fromQuery.trim();
+      if (t) {
+        // If full URL passed as ?link=https://.../q/abc123
+        const m = t.match(/\/q\/([A-Za-z0-9_-]+)/);
+        if (m) t = m[1];
+        else t = t.replace(/^\/+/, '').replace(/^q\//, '');
+        if (t) {
+          setSession('client', 'client');
+          router.replace(`/q/${t}`);
+          return;
+        }
+      }
+    }
   }, [router]);
 
   const ownerEmailTyped = isOwnerEmail(email);
@@ -112,6 +133,9 @@ export default function Gate() {
 
         {tab === 'owner' ? (
           <form onSubmit={enter} className="space-y-4">
+            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-[11px] text-emerald-200">
+              ✅ Client links like <span className="font-mono">yoursite.com/q/abc123</span> open directly — no ID, no PIN needed on main site.
+            </div>
             <div>
               <label className="label" htmlFor="email">
                 Email
@@ -181,20 +205,22 @@ export default function Gate() {
           </form>
         ) : (
           <form onSubmit={openClient} className="space-y-4">
+            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-[11px] text-emerald-200">
+              ✅ Best way: Client should open direct link <span className="font-mono">/q/TOKEN</span> — it opens instantly without entering ID here. Use this box only if you have just the token.
+            </div>
             <div>
               <label className="label" htmlFor="token">
-                Questionnaire link or token
+                Questionnaire link or token (direct links work without this)
               </label>
               <input
                 id="token"
                 className="input mt-1.5 font-mono text-xs"
-                placeholder="/q/ab12cd34ef56"
+                placeholder="https://yoursite.vercel.app/q/ab12cd34ef56 or just ab12cd34ef56"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
               />
               <p className="help">
-                Paste the link the owner sent you. No account needed — your answers save straight to
-                your own questionnaire.
+                Paste the full direct link owner sent you — it will open instantly. No account needed, answers save straight to your questionnaire. Direct /q/ links bypass this page.
               </p>
             </div>
 
