@@ -47,12 +47,39 @@ export const ACCESS_PIN  = '5161211';                  // opens the dashboard
 Anyone with the PIN **or** the owner email gets dashboard rights; everyone else needs a
 questionnaire link. Nothing about the PIN or the owner email is written to Firestore.
 
-## 3. Firebase setup (Auth + Firestore)
+## 3. Firebase setup (Auth + Firestore) — Vercel Ready ✅
 
 The app auto-detects Firebase: add the keys and it switches from local mode to Firebase.
+**Code is Vercel-ready — env var names are centralized in `lib/env.ts`. Just put values in Vercel.**
 
+### Local dev:
+```bash
+cp .env.example .env.local
+# fill values in .env.local
+```
+
+### Vercel deploy (bas value daalni hai, naam pehle se ready hain):
+1. Vercel Dashboard → Your Project → Settings → Environment Variables
+2. Add these exact names (from `.env.example`) — **names already defined, only values needed**:
+   ```
+   NEXT_PUBLIC_FIREBASE_API_KEY
+   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+   NEXT_PUBLIC_FIREBASE_PROJECT_ID
+   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+   NEXT_PUBLIC_FIREBASE_APP_ID
+   NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID (optional)
+   NEXT_PUBLIC_OWNER_EMAIL (optional)
+   NEXT_PUBLIC_ACCESS_PIN (optional)
+   ```
+   - Add to all 3: Production, Preview, Development
+3. Redeploy
+
+Full Hindi guide: see `VERCEL_SETUP.md`
+
+### Firebase project setup:
 1. Create a project → **Add app → Web**, copy the config.
-2. `cp .env.example .env.local` and fill in:
+2. Locally `cp .env.example .env.local` and fill in:
 
    ```env
    NEXT_PUBLIC_FIREBASE_API_KEY=...
@@ -61,6 +88,9 @@ The app auto-detects Firebase: add the keys and it switches from local mode to F
    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
    NEXT_PUBLIC_FIREBASE_APP_ID=...
+   NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=... (optional)
+   NEXT_PUBLIC_OWNER_EMAIL=your-email (optional)
+   NEXT_PUBLIC_ACCESS_PIN=your-pin (optional)
    ```
 
 3. **Authentication → Sign-in method**: enable **Email/Password** and **Anonymous**.
@@ -121,8 +151,18 @@ so existing answers survive edits.
 Required by default (`*`): `basics.name`, `basics.one_liner`, `pages.pages`,
 `features.features`, `budget.budget`, `goals.must_haves`.
 
-## 6. Notes
+## 6. Vercel Env Architecture
+
+- Centralized env reader: `lib/env.ts` — trims values, provides defaults, exports `VERCEL_ENV_NAMES`
+- `lib/firebase.ts` reads from `lib/env.ts`, not directly from `process.env` (cleaner for Vercel)
+- `lib/access.ts` also supports env override: `NEXT_PUBLIC_OWNER_EMAIL` / `NEXT_PUBLIC_ACCESS_PIN`
+- `.env.example` contains exact Vercel variable names — copy-paste to Vercel dashboard, just fill values
+- `vercel.json` minimal config for Next.js
+- If no Firebase envs, app runs in local mode (badge shows Local mode)
+
+## 7. Notes
 
 - `firestore.rules` allows any signed-in session to read a questionnaire doc — needed for
   the client link. Tokens are random 12-char strings, so a link is effectively a private key.
-- Change the PIN or owner email only in `lib/access.ts`, then rebuild.
+- Change the PIN or owner email via Vercel env vars `NEXT_PUBLIC_OWNER_EMAIL` / `NEXT_PUBLIC_ACCESS_PIN`, or in `lib/access.ts` as fallback, then rebuild/redeploy.
+- See `VERCEL_SETUP.md` for Hindi step-by-step Vercel deploy guide.

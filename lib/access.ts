@@ -1,13 +1,14 @@
 /**
  * RegForge — access rules.
  *
- * Hard-coded by design (NOT stored in the database):
- *   • the owner email below gets in without the PIN
- *   • the PIN below opens the owner dashboard
+ * Vercel-ready: tries ENV vars first, falls back to hard-coded defaults.
+ * Vercel pe NEXT_PUBLIC_OWNER_EMAIL aur NEXT_PUBLIC_ACCESS_PIN set kar sakte ho.
+ * Agar env nahi hai to default values use hongi (NOT stored in database).
  */
+import { ENV } from './env';
 
-export const OWNER_EMAIL = 'pavitsingh1611@gmail.com';
-export const ACCESS_PIN = '5161211';
+export const OWNER_EMAIL = ENV.OWNER_EMAIL || 'pavitsingh1611@gmail.com';
+export const ACCESS_PIN = ENV.ACCESS_PIN || '5161211';
 
 export const BRAND = 'RegForge';
 
