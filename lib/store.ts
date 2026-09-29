@@ -225,6 +225,98 @@ export async function reopenQuestionnaire(token: string): Promise<void> {
   await updateDoc(resolved.ref, { submittedAt: null, updatedAt: Date.now() });
 }
 
+/**
+ * Read one questionnaire straight from the signed-in Google user's own nested
+ * collection — `users/{auth.uid}/questionnaires/{token}`.
+ *
+ * This is the creator-only path: it never consults the public share index and
+ * never resolves a token on behalf of someone else, so an anonymous shared-link
+ * session cannot reach it (Firestore rules require a Google UID for that path).
+ */
+export async function getOwnedQuestionnaire(token: string): Promise<Questionnaire | null> {
+  const f = requireFirebase();
+  const user = await requireGoogleUser();
+  const snap = await getDoc(doc(f.db, USERS_COLLECTION, user.uid, QUESTIONNAIRES_COLLECTION, token));
+  if (!snap.exists()) return null;
+  return fromDoc(snap.id, snap.data() as Record<string, unknown>);
+}
+
+/**
+ * Live view of one owned questionnaire for the creator detail page. Submitted
+ * and in-progress answers both stream here; the rules still scope the read to
+ * `users/{auth.uid}/questionnaires/{token}`.
+ */
+export function watchOwnedQuestionnaire(
+  token: string,
+  cb: (item: Questionnaire | null) => void,
+  onError?: (error: StoreError) => void,
+): () => void {
+  let disposed = false;
+  let unsubscribe = () => {};
+
+  void (async () => {
+    try {
+      const f = requireFirebase();
+      const user = await requireGoogleUser();
+      if (disposed) return;
+      unsubscribe = onSnapshot(
+        doc(f.db, USERS_COLLECTION, user.uid, QUESTIONNAIRES_COLLECTION, token),
+        (snap) => {
+          if (disposed) return;
+          cb(snap.exists() ? fromDoc(snap.id, snap.data() as Record<string, unknown>) : null);
+        },
+        (err) => {
+          if (disposed) return;
+          console.warn('[regforge] answer detail snapshot failed', err);
+          onError?.(describeStoreError(err));
+        },
+      );
+    } catch (err) {
+      if (disposed) return;
+      onError?.(describeStoreError(err));
+    }
+  })();
+
+  return () => {
+    disposed = true;
+    unsubscribe();
+  };
+}
+
+export type StoreErrorKind = 'permission-denied' | 'offline' | 'unauthenticated' | 'unconfigured' | 'error';
+
+export interface StoreError {
+  kind: StoreErrorKind;
+  message: string;
+}
+
+/** Map Firestore/our own errors onto a friendly, non-leaky message. */
+export function describeStoreError(err: unknown): StoreError {
+  const code = (err as { code?: string })?.code ?? '';
+  const raw = err instanceof Error ? err.message : '';
+  if (/not configured/i.test(raw)) {
+    return { kind: 'unconfigured', message: raw };
+  }
+  switch (code) {
+    case 'permission-denied':
+      return {
+        kind: 'permission-denied',
+        message:
+          'Firestore denied this read. Sign in with the Google account that owns this questionnaire — a shared client link cannot open the creator answer view.',
+      };
+    case 'unavailable':
+    case 'deadline-exceeded':
+      return { kind: 'offline', message: 'Could not reach Firestore. Check your connection and try again.' };
+    case 'unauthenticated':
+      return {
+        kind: 'unauthenticated',
+        message: 'Your session expired. Sign in with Google again to reopen your workspace.',
+      };
+    default:
+      return { kind: 'error', message: raw || 'Something went wrong while loading this questionnaire.' };
+  }
+}
+
 /** Delete a questionnaire and its share index only from its owner's workspace. */
 export async function deleteQuestionnaire(token: string): Promise<void> {
   const f = requireFirebase();
