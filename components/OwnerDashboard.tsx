@@ -33,6 +33,7 @@ export default function OwnerDashboard() {
   const [filter, setFilter] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [flash, setFlash] = useState('');
+  const [syncError, setSyncError] = useState('');
 
   useEffect(() => {
     if (!isOwnerSession()) {
@@ -44,7 +45,7 @@ export default function OwnerDashboard() {
 
   useEffect(() => {
     if (!ready) return;
-    return watchQuestionnaires(setItems);
+    return watchQuestionnaires(setItems, setSyncError);
   }, [ready]);
 
   const stats = useMemo(() => {
@@ -147,6 +148,12 @@ export default function OwnerDashboard() {
             <p className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
               Local mode: add your Firebase keys to <span className="font-mono">.env.local</span> to sync
               across devices (see README).
+            </p>
+          )}
+
+          {syncError && (
+            <p className="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              {syncError}
             </p>
           )}
 

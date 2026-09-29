@@ -237,7 +237,10 @@ export async function deleteQuestionnaire(token: string): Promise<void> {
 }
 
 /** Live list for the owner dashboard. Returns an unsubscribe function. */
-export function watchQuestionnaires(cb: (items: Questionnaire[]) => void): () => void {
+export function watchQuestionnaires(
+  cb: (items: Questionnaire[]) => void,
+  onError?: (message: string) => void,
+): () => void {
   if (!firebaseConfigured) {
     const emit = () => cb(readLocal());
     emit();
@@ -264,6 +267,12 @@ export function watchQuestionnaires(cb: (items: Questionnaire[]) => void): () =>
       (snap) => cb(snap.docs.map((d) => fromDoc(d.id, d.data() as Record<string, unknown>))),
       (err) => {
         console.warn('[regforge] snapshot failed', err);
+        const code = (err as { code?: string })?.code ?? '';
+        onError?.(
+          code === 'permission-denied'
+            ? 'Firestore refused the read — deploy firestore.rules (owner creates, clients fill in) and make sure Anonymous auth is enabled.'
+            : `Live sync failed (${code || 'error'}). Check your Firebase config in .env.local.`,
+        );
         cb([]);
       },
     );
