@@ -1,0 +1,39 @@
+rules_version = '2';
+
+// RegForge — Firestore security rules.
+// Deploy with:  firebase deploy --only firestore:rules
+//
+// Model:
+//   questionnaires/{token}  — one document per client questionnaire, id = share token
+//   • owner (pavitsingh1611@gmail.com) : full control
+//   • signed-in visitors (clients via anonymous auth) : read + fill in answers
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function owner() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == 'pavitsingh1611@gmail.com';
+    }
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    match /questionnaires/{token} {
+      // clients open the link, so any signed-in session may read a share token
+      allow read: if signedIn();
+
+      // clients autosave their answers
+      allow update: if signedIn();
+
+      // only the owner creates or removes questionnaires
+      allow create: if owner();
+      allow delete: if owner();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

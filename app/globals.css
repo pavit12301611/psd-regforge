@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  @apply bg-ink-900 text-slate-200 antialiased;
+  background-image:
+    radial-gradient(60rem 40rem at 12% -10%, rgba(109, 92, 255, 0.22), transparent 60%),
+    radial-gradient(50rem 32rem at 95% 0%, rgba(0, 209, 178, 0.12), transparent 55%);
+  background-attachment: fixed;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-white/10 bg-white/[0.035] shadow-lg shadow-black/20 backdrop-blur;
+  }
+
+  .card-pad {
+    @apply card p-5 sm:p-6;
+  }
+
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
+      transition focus:outline-none focus-visible:ring-2 focus-visible:ring-spark-400/70
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-spark-500 text-white hover:bg-spark-400 active:translate-y-px;
+  }
+
+  .btn-ghost {
+    @apply btn border border-white/[0.12] bg-white/[0.04] text-slate-200 hover:border-white/25 hover:bg-white/[0.08];
+  }
+
+  .btn-danger {
+    @apply btn border border-rose-400/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20;
+  }
+
+  .btn-sm {
+    @apply rounded-lg px-3 py-1.5 text-xs;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-white/[0.12] bg-ink-800/80 px-3.5 py-2.5 text-sm text-slate-100
+      placeholder:text-slate-500 transition focus:border-spark-400/70 focus:outline-none
+      focus:ring-2 focus:ring-spark-500/25;
+  }
+
+  .label {
+    @apply block text-sm font-semibold text-slate-100;
+  }
+
+  .help {
+    @apply mt-1 text-xs text-slate-400;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.05] px-2.5 py-1
+      text-[11px] font-medium tracking-wide text-slate-300;
+  }
+
+  .chip-on {
+    @apply border-emerald-400/30 bg-emerald-400/10 text-emerald-200;
+  }
+
+  .chip-wait {
+    @apply border-amber-400/30 bg-amber-400/10 text-amber-200;
+  }
+
+  .option {
+    @apply flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3
+      text-sm transition hover:border-white/25 hover:bg-white/[0.06];
+  }
+
+  .option-on {
+    @apply border-spark-400/60 bg-spark-500/15;
+  }
+
+  .bar {
+    @apply h-2 w-full overflow-hidden rounded-full bg-white/10;
+  }
+
+  .bar-fill {
+    @apply h-full rounded-full bg-gradient-to-r from-spark-500 to-emerald-400 transition-all duration-300;
+  }
+
+  .section-title {
+    @apply text-lg font-semibold text-white;
+  }
+
+  .muted {
+    @apply text-sm text-slate-400;
+  }
+}
