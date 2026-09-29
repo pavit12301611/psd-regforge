@@ -5,10 +5,9 @@ You create a questionnaire, send the client one link, and their answers build th
 that turns their idea into a real project. Answers autosave as they type.
 
 - **12 modules · 50 questions** (stable ids `module.question`, `*` = required)
-- **Access PIN `5161211`** to open the owner dashboard
-- **Owner email `pavitsingh1611@gmail.com`** gets in **without the PIN**
-- Both are **hard-coded in `lib/access.ts`** — never stored in a database
-- Backend: **Firebase Authentication + Firestore** (falls back to browser storage with zero setup)
+- **Admin access:** Firebase email/password sign-in plus a Firestore UID allowlist
+- Only accounts explicitly enabled in `admins/{uid}` can open the dashboard
+- Backend: **Firebase Authentication + Firestore** (client links use anonymous auth)
 
 ---
 
@@ -30,22 +29,16 @@ npm run build           # production build
 
 | Route | Who | What |
 | --- | --- | --- |
-| `/` | anyone | PIN gate. Owner email skips the PIN. Clients can paste a link here. |
-| `/owner` | PIN verified | dashboard: every questionnaire, live progress %, copy client link, delete |
-| `/new` | PIN verified | create a questionnaire (project title, client name, client email) → shareable link |
+| `/` | anyone | Admin sign-in or client link entry |
+| `/owner` | allowlisted Firebase admin | dashboard: questionnaires, live progress %, copy client link, delete |
+| `/new` | allowlisted Firebase admin | create a questionnaire → shareable link |
 | `/q/<token>` | client | the questionnaire itself: 12 modules, autosave, submit |
 
 Flow: **`/new` → copy `/q/<token>` → send to client → client answers → you watch progress live in `/owner`.**
 
-Access model (hard-coded in `lib/access.ts`):
-
-```ts
-export const OWNER_EMAIL = 'pavitsingh1611@gmail.com'; // no PIN needed
-export const ACCESS_PIN  = '5161211';                  // opens the dashboard
-```
-
-Anyone with the PIN **or** the owner email gets dashboard rights; everyone else needs a
-questionnaire link. Nothing about the PIN or the owner email is written to Firestore.
+Admin access is not tied to a particular email. Create the Firebase Authentication account,
+then add its Firebase UID as an enabled admin in Firestore (`admins/{uid}`). Email/password
+sign-in alone does not grant dashboard access; accounts without that marker are rejected.
 
 ## 3. Firebase setup (Auth + Firestore) — Vercel Ready ✅
 
@@ -75,8 +68,6 @@ You can also paste a whole `.env` block into Vercel's Key field, or use the indi
    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
    NEXT_PUBLIC_FIREBASE_APP_ID
    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID (optional)
-   NEXT_PUBLIC_OWNER_EMAIL (optional)
-   NEXT_PUBLIC_ACCESS_PIN (optional)
    ```
    - Add to all 3: Production, Preview, Development
 3. Redeploy
@@ -95,15 +86,13 @@ Full Hindi guide: see `VERCEL_SETUP.md`
    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
    NEXT_PUBLIC_FIREBASE_APP_ID=...
    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=... (optional)
-   NEXT_PUBLIC_OWNER_EMAIL=your-email (optional)
-   NEXT_PUBLIC_ACCESS_PIN=your-pin (optional)
    ```
 
 3. **Authentication → Sign-in method**: enable **Email/Password** and **Anonymous**.
-   - The owner is created automatically on first PIN/owner-email login, using the PIN as
-     the account password (no manual user setup, and login never blocks if Firebase is down).
-   - Clients get an anonymous session so they can save answers to their own questionnaire.
-4. **Firestore Database → Create database**, then deploy the included rules:
+   - Clients get anonymous sessions to open and save their shared questionnaire.
+   - Admin accounts are not created by the website. Create the account in Firebase Console → Authentication → Users.
+4. **Bootstrap an admin:** copy that user's Firebase **UID** from Authentication → Users, then in Firestore create document `admins/{UID}` with field `enabled` (boolean) set to `true`. Only an administrator with console/Admin SDK access can change this allowlist.
+5. **Firestore Database → Rules**, then deploy/publish the included rules:
 
    ```bash
    npm i -g firebase-tools
@@ -127,17 +116,16 @@ questionnaires/{token}
 
 | | read | write |
 | --- | --- | --- |
-| `pavitsingh1611@gmail.com` | ✅ all | ✅ create / update / delete |
-| clients (anonymous session) | ✅ questionnaire docs | ✅ update answers only |
-| everyone else | ❌ | ❌ |
+| Admin UIDs in `admins/{uid}` with `enabled: true` | ✅ all questionnaires | ✅ create / update / delete |
+| Clients (anonymous session + share token) | ✅ questionnaire document | ✅ update answers/submission fields only |
+| Other signed-in accounts | ❌ | ❌ |
 
-Everything outside `questionnaires` is denied.
+Admin marker documents are read-only to their own signed-in user and cannot be edited by app clients. Everything else is denied.
 
 ## 4. No Firebase yet? Local mode
 
-With no keys the app still works end to end — questionnaires live in that browser's
-`localStorage` (storage mode is shown as a badge in the header). Perfect for demoing to a
-client on your own machine; add the Firebase keys before you send real links around.
+With no Firebase keys, questionnaire data can use that browser's `localStorage`, but secure
+admin sign-in/dashboard access is disabled. Configure Firebase before creating or sharing live questionnaires.
 
 ## 5. Question bank
 
@@ -162,14 +150,12 @@ Required by default (`*`): `basics.name`, `basics.one_liner`, `pages.pages`,
 - `next.config.mjs` + `lib/resolve-env.mjs` resolve all accepted env styles at build time (inlined into the client bundle as `NEXT_PUBLIC_REGFORGE_ENV`)
 - Centralized env reader: `lib/env.ts` — trims values, provides defaults, exports `VERCEL_ENV_NAMES`
 - `lib/firebase.ts` reads from `lib/env.ts`, not directly from `process.env` (cleaner for Vercel)
-- `lib/access.ts` also supports env override: `NEXT_PUBLIC_OWNER_EMAIL` / `NEXT_PUBLIC_ACCESS_PIN`
 - `.env.example` contains exact Vercel variable names — copy-paste to Vercel dashboard, just fill values
 - `vercel.json` minimal config for Next.js
 - If no Firebase envs, app runs in local mode (badge shows Local mode)
 
 ## 7. Notes
 
-- `firestore.rules` allows any signed-in session to read a questionnaire doc — needed for
-  the client link. Tokens are random 12-char strings, so a link is effectively a private key.
-- Change the PIN or owner email via Vercel env vars `NEXT_PUBLIC_OWNER_EMAIL` / `NEXT_PUBLIC_ACCESS_PIN`, or in `lib/access.ts` as fallback, then rebuild/redeploy.
+- `firestore.rules` grants dashboard access only to enabled UIDs in the `admins` collection. Clients use anonymous auth and a questionnaire share token.
+- Add or revoke admins by creating/removing `admins/{uid}` or setting `enabled: false` in the Firebase Console (or trusted Admin SDK); app clients cannot change this list.
 - See `VERCEL_SETUP.md` for Hindi step-by-step Vercel deploy guide.

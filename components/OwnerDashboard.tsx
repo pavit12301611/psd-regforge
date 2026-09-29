@@ -10,7 +10,7 @@ import {
   watchQuestionnaires,
   type Questionnaire,
 } from '@/lib/store';
-import { fbSignOut } from '@/lib/firebase';
+import { currentAdminUser, fbSignOut } from '@/lib/firebase';
 import { clearSession, getSession, isOwnerSession } from '@/lib/session';
 import { TopBar } from './Shell';
 
@@ -37,12 +37,29 @@ export default function OwnerDashboard() {
   const [origin, setOrigin] = useState('');
 
   useEffect(() => {
+    let active = true;
     if (!isOwnerSession()) {
       router.replace('/');
-      return;
+      return () => { active = false; };
     }
-    setReady(true);
-    if (typeof window !== 'undefined') setOrigin(window.location.origin);
+    (async () => {
+      try {
+        const admin = await currentAdminUser();
+        if (!active) return;
+        if (!admin) {
+          clearSession();
+          router.replace('/');
+          return;
+        }
+        setReady(true);
+        if (typeof window !== 'undefined') setOrigin(window.location.origin);
+      } catch {
+        if (!active) return;
+        clearSession();
+        router.replace('/');
+      }
+    })();
+    return () => { active = false; };
   }, [router]);
 
   useEffect(() => {

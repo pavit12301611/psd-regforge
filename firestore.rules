@@ -1,37 +1,59 @@
 rules_version = '2';
 
 // RegForge — Firestore security rules.
-// Deploy with:  firebase deploy --only firestore:rules
-//
-// Model:
-//   questionnaires/{token}  — one document per client questionnaire, id = share token
-//   • owner (pavitsingh1611@gmail.com) : full control
-//   • signed-in visitors (clients via anonymous auth) : read + fill in answers
+// Admins are explicitly allowlisted by Firebase UID in admins/{uid}.
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function owner() {
+    function isAdmin() {
       return request.auth != null
-        && request.auth.token.email != null
-        && request.auth.token.email.lower() == 'pavitsingh1611@gmail.com';
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
     }
 
-    function signedIn() {
-      return request.auth != null;
+    function isAnonymousClient() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    // Admin markers can only be managed in Firebase Console / trusted Admin SDK.
+    // Each signed-in user may check only their own marker; clients cannot list or edit them.
+    match /admins/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list, create, update, delete: if false;
     }
 
     match /questionnaires/{token} {
-      // clients open the link, so any signed-in session may read a share token
-      allow read: if signedIn();
+      // Clients use the unguessable share token; admins can access all documents.
+      allow get: if isAdmin() || isAnonymousClient();
+      allow list: if isAdmin();
 
-      // clients autosave their answers
-      allow update: if signedIn();
+      // Only an allowlisted admin can create/remove questionnaires.
+      allow create: if isAdmin()
+        && request.resource.data.token == token
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.answers is map
+        && request.resource.data.createdAt is int
+        && request.resource.data.updatedAt is int;
 
-      // only the owner creates or removes questionnaires
-      allow create: if owner();
-      allow delete: if owner();
+      // Anonymous clients may edit answers/submission fields only.
+      allow update: if isAdmin() || (
+        isAnonymousClient()
+        && resource.data.token == token
+        && resource.data.ownerUid is string
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['answers', 'updatedAt', 'submittedAt'])
+        && request.resource.data.answers is map
+        && request.resource.data.updatedAt is int
+        && (
+          request.resource.data.submittedAt == null
+          || request.resource.data.submittedAt is int
+        )
+      );
+
+      allow delete: if isAdmin();
     }
 
+    // Deny every other collection/document by default.
     match /{document=**} {
       allow read, write: if false;
     }

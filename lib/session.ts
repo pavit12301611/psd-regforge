@@ -1,6 +1,6 @@
 /** RegForge — local session marker (which role this browser is holding). */
 
-import { isOwnerEmail, normalizeEmail } from './access';
+import { normalizeEmail } from './access';
 
 const KEY = 'regforge.session.v1';
 
@@ -43,7 +43,9 @@ export function clearSession(): void {
   }
 }
 
+// This marker is only for UI state. Protected pages also verify the Firebase admin record,
+// and Firestore rules remain the source of truth for every protected read/write.
 export function isOwnerSession(): boolean {
   const s = getSession();
-  return Boolean(s && s.role === 'owner' && isOwnerEmail(s.email));
+  return Boolean(s && s.role === 'owner');
 }

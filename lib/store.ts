@@ -18,7 +18,6 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { OWNER_EMAIL } from './access';
 import type { Answers } from './library';
 import { ensureSession, fb, firebaseConfigured } from './firebase';
 
@@ -72,7 +71,7 @@ function fromDoc(id: string, data: Record<string, unknown>): Questionnaire {
     title: (data.title as string) ?? 'Untitled project',
     clientName: (data.clientName as string) ?? '',
     clientEmail: (data.clientEmail as string) ?? '',
-    ownerEmail: (data.ownerEmail as string) ?? OWNER_EMAIL,
+    ownerEmail: (data.ownerEmail as string) ?? '',
     createdAt: Number(data.createdAt ?? Date.now()),
     updatedAt: Number(data.updatedAt ?? data.createdAt ?? Date.now()),
     submittedAt: (data.submittedAt as number | null) ?? null,
@@ -125,7 +124,7 @@ export async function createQuestionnaire(input: NewQuestionnaireInput): Promise
     title: input.title.trim() || `${input.clientName || 'Client'} — website requirements`,
     clientName: input.clientName.trim(),
     clientEmail: input.clientEmail.trim().toLowerCase(),
-    ownerEmail: OWNER_EMAIL,
+    ownerEmail: '',
     createdAt: now,
     updatedAt: now,
     submittedAt: null,
@@ -142,8 +141,9 @@ export async function createQuestionnaire(input: NewQuestionnaireInput): Promise
   if (!f || !user) throw new Error('Firebase session unavailable — check your Firebase config and anonymous auth.');
 
   const ref = doc(f.db, COLLECTION, token);
-  await setDoc(ref, { ...base, ownerUid: user.uid });
-  return base;
+  const owned = { ...base, ownerEmail: user.email ?? '' };
+  await setDoc(ref, { ...owned, ownerUid: user.uid });
+  return owned;
 }
 
 export async function listQuestionnaires(): Promise<Questionnaire[]> {

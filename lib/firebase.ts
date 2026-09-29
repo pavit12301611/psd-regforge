@@ -1,22 +1,9 @@
 /**
- * RegForge — Firebase bootstrap (client SDK).
- *
- * VERCEL DEPLOYMENT:
- * Vercel dashboard pe jaake Environment Variables me in naam se keys daal do:
- * - NEXT_PUBLIC_FIREBASE_API_KEY
- * - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
- * - NEXT_PUBLIC_FIREBASE_PROJECT_ID
- * - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
- * - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
- * - NEXT_PUBLIC_FIREBASE_APP_ID
- * - NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID (optional)
- *
- * Local me .env.local me same naam se daal do. Code lib/env.ts se read karta hai.
- * Firebase optional hai: keys nahi hain to localStorage mode me chalega.
+ * RegForge — Firebase bootstrap and authentication (client SDK).
+ * Admin access is granted by the Firestore admins/{uid} allowlist, never by email.
  */
 import { getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import {
-  createUserWithEmailAndPassword,
   getAuth,
   onAuthStateChanged,
   signInAnonymously,
@@ -25,10 +12,9 @@ import {
   type Auth,
   type User,
 } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { doc, getDoc, getFirestore, type Firestore } from 'firebase/firestore';
 import { firebaseEnvConfig, isFirebaseEnvConfigured } from './env';
 
-// Vercel env se config — trim ho ke aata hai lib/env.ts se
 const config = {
   apiKey: firebaseEnvConfig.apiKey ?? '',
   authDomain: firebaseEnvConfig.authDomain ?? '',
@@ -39,7 +25,6 @@ const config = {
   ...(firebaseEnvConfig.measurementId ? { measurementId: firebaseEnvConfig.measurementId } : {}),
 };
 
-// Export for debugging / Vercel check
 export const firebaseConfig = config;
 export const firebaseConfigured = isFirebaseEnvConfigured;
 
@@ -72,11 +57,13 @@ export function readableAuthError(err: unknown): string {
       return 'That email address looks invalid.';
     case 'auth/wrong-password':
     case 'auth/invalid-credential':
-      return 'Firebase rejected the password for this account. If it already existed with a different password, reset it in the Firebase console (Authentication → Users).';
+    case 'auth/invalid-login-credentials':
+    case 'auth/user-not-found':
+      return 'Email or password is incorrect, or this Firebase account does not exist.';
     case 'auth/email-already-in-use':
-      return 'A Firebase account already exists for this email with a different password. Reset it in the Firebase console.';
+      return 'A Firebase account already exists for this email. Sign in with its existing password.';
     case 'auth/operation-not-allowed':
-      return 'Email/Password sign-in is disabled. Enable it in Firebase console → Authentication → Sign-in method.';
+      return 'Email/Password sign-in is disabled. Enable it in Firebase Console → Authentication → Sign-in method.';
     case 'auth/network-request-failed':
       return 'Network blocked the Firebase request. Check your connection, then retry.';
     case 'auth/too-many-requests':
@@ -86,32 +73,45 @@ export function readableAuthError(err: unknown): string {
   }
 }
 
-/**
- * Owner sign-in. The owner's Firebase password is the access PIN, and the account
- * is created on first login so nothing has to be set up by hand.
- */
-export async function ownerSignIn(email: string, password: string): Promise<User | null> {
+async function adminRecordExists(uid: string): Promise<boolean> {
   const f = fb();
-  if (!f) return null;
-  try {
-    const cred = await signInWithEmailAndPassword(f.auth, email, password);
-    return cred.user;
-  } catch (err) {
-    const code = authErrorCode(err);
-    if (code === 'auth/user-not-found' || code === 'auth/invalid-credential' || code === 'auth/invalid-login-credentials') {
-      try {
-        const cred = await createUserWithEmailAndPassword(f.auth, email, password);
-        return cred.user;
-      } catch (createErr) {
-        if (authErrorCode(createErr) === 'auth/email-already-in-use') throw err;
-        throw createErr;
-      }
-    }
-    throw err;
-  }
+  if (!f) return false;
+  const snap = await getDoc(doc(f.db, 'admins', uid));
+  return snap.exists() && snap.data().enabled === true;
 }
 
-/** Guests (clients) read/write through the shared link with an anonymous session. */
+/** Sign in only; accounts are created separately in Firebase Console. */
+export async function adminSignIn(email: string, password: string): Promise<User> {
+  const f = fb();
+  if (!f) throw new Error('Firebase must be configured before an admin can sign in.');
+
+  const credential = await signInWithEmailAndPassword(f.auth, email.trim(), password);
+  try {
+    if (!(await adminRecordExists(credential.user.uid))) {
+      await signOut(f.auth);
+      throw new Error('This account is not enabled as an admin. Ask the project administrator to add its UID under Firestore admins.');
+    }
+  } catch (err) {
+    // A denied/missing admin marker must never leave a non-admin signed in on the app.
+    if (f.auth.currentUser?.uid === credential.user.uid) await signOut(f.auth);
+    throw err;
+  }
+  return credential.user;
+}
+
+/** Check the persisted Firebase account and its server-managed admin marker. */
+export async function currentAdminUser(): Promise<User | null> {
+  const f = fb();
+  if (!f) return null;
+
+  const user = await ensureSession();
+  if (!user || user.isAnonymous) return null;
+  if (await adminRecordExists(user.uid)) return user;
+  if (f.auth.currentUser?.uid === user.uid) await signOut(f.auth);
+  return null;
+}
+
+/** Guests (clients) read/write through a shared link with an anonymous session. */
 export async function ensureClientSession(): Promise<User | null> {
   const f = fb();
   if (!f) return null;
@@ -120,25 +120,25 @@ export async function ensureClientSession(): Promise<User | null> {
     const cred = await signInAnonymously(f.auth);
     return cred.user;
   } catch {
-    // Anonymous auth may be disabled — the local fallback still works.
     return null;
   }
 }
 
-/** Waits until Firebase has restored any persisted session, then makes sure we have one. */
+/** Wait until Firebase restores persisted auth, then use/create a guest session. */
 export async function ensureSession(): Promise<User | null> {
   const f = fb();
   if (!f) return null;
   if (f.auth.currentUser) return f.auth.currentUser;
   await new Promise<void>((resolve) => {
-    const stop = onAuthStateChanged(f.auth, () => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
       stop();
       resolve();
-    });
-    setTimeout(() => {
-      stop();
-      resolve();
-    }, 1200);
+    };
+    const stop = onAuthStateChanged(f.auth, finish);
+    setTimeout(finish, 1200);
   });
   if (f.auth.currentUser) return f.auth.currentUser;
   return ensureClientSession();

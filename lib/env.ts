@@ -18,9 +18,7 @@ type Resolved = Partial<
     | 'storageBucket'
     | 'messagingSenderId'
     | 'appId'
-    | 'measurementId'
-    | 'ownerEmail'
-    | 'accessPin',
+    | 'measurementId',
     string
   >
 >;
@@ -44,9 +42,6 @@ export const ENV = {
   FIREBASE_APP_ID: R.appId ?? '',
   FIREBASE_MEASUREMENT_ID: R.measurementId ?? '',
 
-  // Access - OPTIONAL overrides
-  OWNER_EMAIL: (R.ownerEmail || 'pavitsingh1611@gmail.com').toLowerCase(),
-  ACCESS_PIN: R.accessPin || '5161211',
 } as const;
 
 // Firebase config object ready for initializeApp
@@ -74,6 +69,4 @@ export const VERCEL_ENV_NAMES = [
   'NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
   'NEXT_PUBLIC_FIREBASE_APP_ID',
   'NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID',
-  'NEXT_PUBLIC_OWNER_EMAIL',
-  'NEXT_PUBLIC_ACCESS_PIN',
 ] as const;
