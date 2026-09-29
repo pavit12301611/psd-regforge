@@ -1,9 +1,18 @@
 /**
  * RegForge — Firebase bootstrap (client SDK).
  *
- * Firebase is optional at build time: add the NEXT_PUBLIC_FIREBASE_* keys to
- * .env.local and the app switches from local storage to Firebase Auth + Firestore
- * automatically. See README.md.
+ * VERCEL DEPLOYMENT:
+ * Vercel dashboard pe jaake Environment Variables me in naam se keys daal do:
+ * - NEXT_PUBLIC_FIREBASE_API_KEY
+ * - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+ * - NEXT_PUBLIC_FIREBASE_PROJECT_ID
+ * - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+ * - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+ * - NEXT_PUBLIC_FIREBASE_APP_ID
+ * - NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID (optional)
+ *
+ * Local me .env.local me same naam se daal do. Code lib/env.ts se read karta hai.
+ * Firebase optional hai: keys nahi hain to localStorage mode me chalega.
  */
 import { getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import {
@@ -17,17 +26,22 @@ import {
   type User,
 } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
+import { firebaseEnvConfig, isFirebaseEnvConfigured } from './env';
 
+// Vercel env se config — trim ho ke aata hai lib/env.ts se
 const config = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? '',
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? '',
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? '',
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? '',
+  apiKey: firebaseEnvConfig.apiKey ?? '',
+  authDomain: firebaseEnvConfig.authDomain ?? '',
+  projectId: firebaseEnvConfig.projectId ?? '',
+  storageBucket: firebaseEnvConfig.storageBucket ?? '',
+  messagingSenderId: firebaseEnvConfig.messagingSenderId ?? '',
+  appId: firebaseEnvConfig.appId ?? '',
+  ...(firebaseEnvConfig.measurementId ? { measurementId: firebaseEnvConfig.measurementId } : {}),
 };
 
-export const firebaseConfigured = Boolean(config.apiKey && config.projectId && config.appId);
+// Export for debugging / Vercel check
+export const firebaseConfig = config;
+export const firebaseConfigured = isFirebaseEnvConfigured;
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;

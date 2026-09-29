@@ -14,7 +14,7 @@ export function StorageBadge() {
     <span className={`chip ${firebase ? 'chip-on' : 'chip-wait'}`} title={
       firebase
         ? 'Connected to Firebase Auth + Firestore'
-        : 'No Firebase keys found — data is kept in this browser. Add NEXT_PUBLIC_FIREBASE_* to .env.local (see README).'
+        : 'No Firebase keys found — data is kept in this browser. Add NEXT_PUBLIC_FIREBASE_* to .env.local locally, or set them in Vercel Dashboard → Settings → Environment Variables.'
     }>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {firebase ? 'Firebase live' : 'Local mode'}
