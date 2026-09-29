@@ -1,5 +1,6 @@
-import OwnerDashboard from '@/components/OwnerDashboard';
+import { redirect } from 'next/navigation';
 
-export default function OwnerPage() {
-  return <OwnerDashboard />;
+/** Backwards-compatible route for old bookmarks; authorization lives at /dashboard. */
+export default function LegacyWorkspaceRoute() {
+  redirect('/dashboard');
 }

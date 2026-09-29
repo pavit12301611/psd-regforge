@@ -7,7 +7,8 @@
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3000",
-    "check:library": "node scripts/check-library.mjs"
+    "check:library": "node scripts/check-library.mjs",
+    "migrate:legacy": "node scripts/migrate-legacy-questionnaires.mjs"
   },
   "dependencies": {
     "firebase": "^12.19.0",

@@ -6,18 +6,15 @@ import { useRouter } from 'next/navigation';
 import { MODULE_COUNT, QUESTION_COUNT, overallProgress } from '@/lib/library';
 import {
   deleteQuestionnaire,
-  storageMode,
   watchQuestionnaires,
   type Questionnaire,
 } from '@/lib/store';
-import { currentAdminUser, fbSignOut } from '@/lib/firebase';
-import { clearSession, getSession, isOwnerSession } from '@/lib/session';
+import { currentGoogleUser, fbSignOut } from '@/lib/firebase';
 import { TopBar } from './Shell';
 
 function when(ts: number): string {
   if (!ts) return '—';
-  const d = new Date(ts);
-  return d.toLocaleString(undefined, {
+  return new Date(ts).toLocaleString(undefined, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -26,9 +23,10 @@ function when(ts: number): string {
   });
 }
 
-export default function OwnerDashboard() {
+export default function WorkspaceDashboard() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
   const [items, setItems] = useState<Questionnaire[]>([]);
   const [filter, setFilter] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
@@ -38,53 +36,48 @@ export default function OwnerDashboard() {
 
   useEffect(() => {
     let active = true;
-    if (!isOwnerSession()) {
-      router.replace('/');
-      return () => { active = false; };
-    }
-    (async () => {
-      try {
-        const admin = await currentAdminUser();
+    currentGoogleUser()
+      .then((user) => {
         if (!active) return;
-        if (!admin) {
-          clearSession();
+        if (!user) {
           router.replace('/');
           return;
         }
+        setUserEmail(user.email ?? '');
+        setOrigin(window.location.origin);
         setReady(true);
-        if (typeof window !== 'undefined') setOrigin(window.location.origin);
-      } catch {
-        if (!active) return;
-        clearSession();
-        router.replace('/');
-      }
-    })();
-    return () => { active = false; };
+      })
+      .catch(() => {
+        if (active) router.replace('/');
+      });
+    return () => {
+      active = false;
+    };
   }, [router]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready) return undefined;
     return watchQuestionnaires(setItems, setSyncError);
   }, [ready]);
 
   const stats = useMemo(() => {
-    const submitted = items.filter((i) => i.submittedAt).length;
+    const submitted = items.filter((item) => item.submittedAt).length;
     const avg = items.length
-      ? Math.round(items.reduce((a, i) => a + overallProgress(i.answers).percent, 0) / items.length)
+      ? Math.round(items.reduce((total, item) => total + overallProgress(item.answers).percent, 0) / items.length)
       : 0;
     return { total: items.length, submitted, pending: items.length - submitted, avg };
   }, [items]);
 
   const visible = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    if (!f) return items;
-    return items.filter((i) =>
-      [i.title, i.clientName, i.clientEmail, i.token].join(' ').toLowerCase().includes(f),
+    const search = filter.trim().toLowerCase();
+    if (!search) return items;
+    return items.filter((item) =>
+      [item.title, item.clientName, item.clientEmail, item.token].join(' ').toLowerCase().includes(search),
     );
   }, [items, filter]);
 
   function fullUrl(token: string) {
-    return `${origin || (typeof window !== 'undefined' ? window.location.origin : '')}/q/${token}`;
+    return `${origin || window.location.origin}/q/${token}`;
   }
 
   async function copyLink(token: string) {
@@ -109,22 +102,29 @@ export default function OwnerDashboard() {
   }
 
   async function signOut() {
-    clearSession();
     await fbSignOut();
-    router.push('/');
+    router.replace('/');
   }
 
-  if (!ready) return null;
-
-  const email = getSession()?.email ?? '';
+  if (!ready) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-24 text-center">
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-spark-400" />
+        <p className="muted mt-4">Opening your workspace…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
       <TopBar>
+        <span className="hidden max-w-[15rem] truncate text-xs text-slate-400 sm:inline" title={userEmail}>
+          {userEmail}
+        </span>
         <Link href="/new" className="btn-primary btn-sm">
           + New questionnaire
         </Link>
-        <button className="btn-ghost btn-sm" onClick={signOut} title={email}>
+        <button className="btn-ghost btn-sm" onClick={signOut} type="button">
           Sign out
         </button>
       </TopBar>
@@ -136,10 +136,10 @@ export default function OwnerDashboard() {
             { label: 'Awaiting client', value: stats.pending },
             { label: 'Submitted', value: stats.submitted },
             { label: 'Avg. completion', value: `${stats.avg}%` },
-          ].map((s) => (
-            <div key={s.label} className="card p-4">
-              <p className="text-[11px] uppercase tracking-wider text-slate-400">{s.label}</p>
-              <p className="mt-1 text-2xl font-bold text-white">{s.value}</p>
+          ].map((stat) => (
+            <div key={stat.label} className="card p-4">
+              <p className="text-[11px] uppercase tracking-wider text-slate-400">{stat.label}</p>
+              <p className="mt-1 text-2xl font-bold text-white">{stat.value}</p>
             </div>
           ))}
         </section>
@@ -147,10 +147,9 @@ export default function OwnerDashboard() {
         <section className="card-pad">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="section-title">Client questionnaires</h2>
+              <h1 className="section-title">Your questionnaires</h1>
               <p className="muted">
-                {MODULE_COUNT} modules · {QUESTION_COUNT} questions · answers autosave as the client
-                types.
+                {MODULE_COUNT} modules · {QUESTION_COUNT} questions · answers autosave as the client types.
               </p>
             </div>
             <input
@@ -158,19 +157,13 @@ export default function OwnerDashboard() {
               placeholder="Search client, project or token…"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
+              aria-label="Search questionnaires"
             />
           </div>
 
           {flash && (
             <p className="mt-4 rounded-xl border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-xs text-slate-300">
               {flash}
-            </p>
-          )}
-
-          {storageMode() === 'local' && (
-            <p className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-              Local mode: add your Firebase keys (one <span className="font-mono">FIREBASE_CONFIG</span> variable on Vercel, or <span className="font-mono">.env.local</span>) to sync
-              across devices (see README).
             </p>
           )}
 
@@ -198,21 +191,20 @@ export default function OwnerDashboard() {
 
             {visible.map((item) => {
               const progress = overallProgress(item.answers);
-              const link = `/q/${item.token}`;
               const direct = fullUrl(item.token);
               return (
                 <article key={item.token} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate font-semibold text-white">{item.title}</h3>
+                        <h2 className="truncate font-semibold text-white">{item.title}</h2>
                         <span className={`chip ${item.submittedAt ? 'chip-on' : 'chip-wait'}`}>
                           {item.submittedAt ? 'Submitted' : 'In progress'}
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-slate-400">
                         {item.clientName || 'Unnamed client'}
-                        {item.clientEmail ? ` · ${item.clientEmail}` : ''} · token{' '}
+                        {item.clientEmail ? ` · ${item.clientEmail}` : ''} · share token{' '}
                         <span className="font-mono text-slate-300">{item.token}</span>
                       </p>
                       <p className="mt-1 text-[11px] text-slate-500">
@@ -225,24 +217,25 @@ export default function OwnerDashboard() {
                           readOnly
                           value={direct}
                           onFocus={(e) => e.currentTarget.select()}
+                          aria-label={`Direct link for ${item.title}`}
                         />
                       </div>
                       <p className="mt-1 text-[10px] text-emerald-300/80">
-                        ✅ Direct link — client clicks and opens instantly, no login / ID required
+                        Direct link — clients can edit this questionnaire only.
                       </p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      <button className="btn-ghost btn-sm" onClick={() => copyLink(item.token)}>
+                      <button className="btn-ghost btn-sm" onClick={() => copyLink(item.token)} type="button">
                         {copied === item.token ? 'Link copied ✓' : 'Copy direct link'}
                       </button>
                       <a href={direct} target="_blank" rel="noopener noreferrer" className="btn-ghost btn-sm">
                         Open direct ↗
                       </a>
-                      <Link href={link} className="btn-ghost btn-sm">
+                      <Link href={`/q/${item.token}`} className="btn-ghost btn-sm">
                         Preview
                       </Link>
-                      <button className="btn-danger btn-sm" onClick={() => remove(item)}>
+                      <button className="btn-danger btn-sm" onClick={() => remove(item)} type="button">
                         Delete
                       </button>
                     </div>

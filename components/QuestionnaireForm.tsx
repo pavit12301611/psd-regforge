@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   MODULES,
   overallProgress,
@@ -12,20 +11,18 @@ import {
   type Answers,
 } from '@/lib/library';
 import {
+  currentUserOwnsQuestionnaire,
   getQuestionnaire,
   reopenQuestionnaire,
   saveAnswers,
   submitQuestionnaire,
   type Questionnaire,
 } from '@/lib/store';
-import { currentAdminUser } from '@/lib/firebase';
-import { isOwnerSession } from '@/lib/session';
 import QuestionField from './QuestionField';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 export default function QuestionnaireForm({ token }: { token: string }) {
-  const router = useRouter();
   const [item, setItem] = useState<Questionnaire | null>(null);
   const [answers, setAnswers] = useState<Answers>({});
   const [loading, setLoading] = useState(true);
@@ -37,18 +34,9 @@ export default function QuestionnaireForm({ token }: { token: string }) {
   const [showMissing, setShowMissing] = useState(false);
   const [activeModule, setActiveModule] = useState(MODULES[0].key);
   const [justSaved, setJustSaved] = useState<string>('');
-  const [owner, setOwner] = useState(false);
+  const [workspacePreview, setWorkspacePreview] = useState(false);
 
   const dirty = useRef(false);
-
-  useEffect(() => {
-    if (!isOwnerSession()) return;
-    let alive = true;
-    currentAdminUser()
-      .then((user) => { if (alive) setOwner(Boolean(user)); })
-      .catch(() => { if (alive) setOwner(false); });
-    return () => { alive = false; };
-  }, []);
 
   /* ------------------------------------------------------------------- load */
   useEffect(() => {
@@ -59,12 +47,15 @@ export default function QuestionnaireForm({ token }: { token: string }) {
         if (!alive) return;
         if (!found) {
           setLoadError(
-            'This questionnaire could not be found. Check the link, or ask the owner to resend it.',
+            'This questionnaire could not be found. Check the link, or ask the workspace owner to resend it.',
           );
         } else {
           setItem(found);
           setAnswers(found.answers ?? {});
           setSubmitted(Boolean(found.submittedAt));
+          currentUserOwnsQuestionnaire(token)
+            .then((owns) => { if (alive) setWorkspacePreview(owns); })
+            .catch(() => { if (alive) setWorkspacePreview(false); });
         }
       } catch (err) {
         if (alive) setLoadError(err instanceof Error ? err.message : 'Could not load the questionnaire.');
@@ -191,8 +182,8 @@ export default function QuestionnaireForm({ token }: { token: string }) {
             <button className="btn-ghost" type="button" onClick={editAgain}>
               Edit my answers
             </button>
-            {owner && (
-              <Link href="/owner" className="btn-primary">
+            {workspacePreview && (
+              <Link href="/dashboard" className="btn-primary">
                 Back to dashboard
               </Link>
             )}
@@ -208,7 +199,7 @@ export default function QuestionnaireForm({ token }: { token: string }) {
       <div className="card-pad">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <span className="chip">{owner ? 'Owner preview' : 'Client questionnaire'}</span>
+            <span className="chip">{workspacePreview ? 'Workspace preview' : 'Client questionnaire'}</span>
             <h1 className="mt-3 text-xl font-bold text-white sm:text-2xl">{item.title}</h1>
             <p className="muted mt-1">
               {item.clientName ? `Prepared for ${item.clientName}` : 'Prepared for you'}
@@ -248,10 +239,10 @@ export default function QuestionnaireForm({ token }: { token: string }) {
           </div>
         )}
 
-        {owner && (
+        {workspacePreview && (
           <p className="mt-4 text-xs text-slate-400">
-            You are the owner — this is exactly what your client sees.{' '}
-            <Link href="/owner" className="underline hover:text-slate-200">
+            You are previewing a share link from your workspace.{' '}
+            <Link href="/dashboard" className="underline hover:text-slate-200">
               Back to dashboard
             </Link>
           </p>
@@ -344,7 +335,7 @@ export default function QuestionnaireForm({ token }: { token: string }) {
             <h2 className="section-title">Ready to send?</h2>
             <p className="muted mt-1">
               {missing.length === 0
-                ? 'All required questions are answered. Submit whenever you like — the owner gets the full brief instantly.'
+                ? 'All required questions are answered. Submit whenever you like — your workspace receives the full brief instantly.'
                 : `${missing.length} required question${missing.length > 1 ? 's' : ''} still empty.`}
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-3">

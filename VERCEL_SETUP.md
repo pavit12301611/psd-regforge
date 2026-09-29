@@ -1,91 +1,137 @@
-# Vercel Deploy — Firebase Env Setup (Hindi Guide)
+# Vercel + Firebase setup
 
-Bhai ye steps follow kar, 2 min me live ho jayega:
+This guide deploys the multi-user RegForge app. There is one Google sign-in flow for workspace users;
+there is no email/password form, PIN, privileged UID list, or manual Firestore access document.
 
-## 1. Vercel pe Project Import kar
-- Vercel Dashboard → Add New → Project → GitHub se `psd-regforge` import kar
-- Framework: Next.js auto-detect ho jayega
-- Build Command: `npm run build` (default)
+## 1. Import the Next.js project
 
-## 2. Keys daal — SIRF EK variable (naye names banane ki zaroorat nahi)
+1. Vercel Dashboard → **Add New → Project** → import `psd-regforge`.
+2. Keep the detected framework as **Next.js**.
+3. Build command: `npm run build`.
 
-Vercel → Project → Settings → Environment Variables → **Add New**
+## 2. Add the Firebase web config
 
-| Field | Kya daalna hai |
-|---|---|
-| **Key** | `FIREBASE_CONFIG` |
-| **Value** | Firebase ka config snippet **as-is paste** kar de (neeche dekh) |
-| Environments | Production + Preview + Development |
+In **Vercel → Project → Settings → Environment Variables**, add the values for Production, Preview, and
+Development as needed.
 
-Firebase Console → Project Settings → General → Your apps → Web app → **Config** — jo ye dikhta hai wahi pura paste kar:
+The simplest option is one variable:
+
+| Key | Value |
+| --- | --- |
+| `FIREBASE_CONFIG` | The Firebase Console Web app config snippet, JSON, or `.env`-style values |
+
+Example snippet from **Firebase Console → Project settings → Your apps → Web app → Config**:
 
 ```js
 const firebaseConfig = {
   apiKey: "AIza...",
-  authDomain: "xxx.firebaseapp.com",
-  projectId: "xxx",
-  storageBucket: "xxx.firebasestorage.app",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project",
+  storageBucket: "your-project.firebasestorage.app",
   messagingSenderId: "123456",
-  appId: "1:123456:web:abc",
-  measurementId: "G-XXXX"
+  appId: "1:123456:web:abc"
 };
 ```
 
-Code khud `apiKey`, `projectId`, `appId` etc. nikaal leta hai (build time pe, `next.config.mjs` → `lib/resolve-env.mjs`).
-JSON, `KEY=value` lines, ya poora `.env` block paste karoge tab bhi chalega.
+Alternatively add these individual variables:
 
-### Alternatives (agar chahiye)
-- **Vercel ka .env paste**: Key field me poora `.env.example` jaisa block paste kar — Vercel khud alag variables bana deta hai.
-- **Alag alag variables**: `NEXT_PUBLIC_FIREBASE_API_KEY` ya bina prefix `FIREBASE_API_KEY` — dono chalte hain.
-
-> ⚠️ Env var badalne ke baad **Redeploy** zaroori hai — values build time pe bundle me jaati hain.
-
-## 3. Deploy
-- Save ke baad Vercel auto redeploy karega
-- Agar nahi kare to: Deployments → Latest → Redeploy
-
-## 4. Check kar
-- Site open kar, top right me `Firebase live` badge dikhna chahiye
-- Agar `Local mode` dikhe to matlab env vars load nahi hue — Vercel logs check kar
-
-## Local Development ke liye
-```bash
-cp .env.example .env.local
-# .env.local me values bhar de
-npm install
-npm run dev
+```text
+NEXT_PUBLIC_FIREBASE_API_KEY
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+NEXT_PUBLIC_FIREBASE_PROJECT_ID
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+NEXT_PUBLIC_FIREBASE_APP_ID
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID   # optional
 ```
 
-## Firebase Console me kya enable karna hai
-1. Authentication → Sign-in method:
-   - Email/Password → Enable
-   - Anonymous → Enable (for questionnaire clients)
-2. Authentication → Users → **Add user** to create an admin email/password account.
-3. Firestore Database → Create database → Start in production mode.
-4. Copy the new admin user's **UID** from Authentication → Users. In Firestore create document `admins/{UID}` with boolean field `enabled: true`. The app cannot grant itself admin access; only Firebase Console/Admin SDK can manage this allowlist.
-5. Publish the included Firestore rules:
-```bash
-npm i -g firebase-tools
-firebase login
-firebase deploy --only firestore:rules
+The config is resolved during the Next.js build. Save the variables and redeploy after changing them.
+The Firebase web config is safe to bundle in a browser; never put a service-account JSON/private key in
+these variables.
+
+## 3. Enable Firebase providers
+
+In Firebase Console:
+
+1. **Authentication → Sign-in method → Google → Enable**.
+2. **Authentication → Sign-in method → Anonymous → Enable**. This is only for clients opening a shared
+   questionnaire link.
+3. **Authentication → Settings → Authorized domains**: add the Vercel production domain and any preview
+   or custom domain that will host/open the app. Keep `localhost` for local development.
+4. **Firestore Database**: create the database in production mode.
+5. From the repository root, set the project in `.firebaserc` and publish the rules:
+
+   ```bash
+   npm install -g firebase-tools
+   firebase login
+   firebase use YOUR_FIREBASE_PROJECT_ID
+   firebase deploy --only firestore:rules
+   ```
+
+A user’s first successful Google sign-in initializes `users/{uid}` automatically. Do not create a user
+profile, access marker, or workspace document manually.
+
+## 4. Verify the deployment
+
+1. Open the Vercel URL. The page should show `Firebase live`.
+2. Choose **Continue with Google**. The app should open `/dashboard` and show an empty private workspace.
+3. Create a questionnaire at `/new`, copy its `/q/<token>` link, and open it in a private window.
+4. Type an answer and refresh; autosave should retain it. Submit and check the workspace dashboard.
+5. Sign in with a second Google account and confirm it sees an empty workspace, not the first account’s
+   questionnaire.
+6. In the private window, try a different token path manually. It should not return another questionnaire.
+
+## 5. Data model and security
+
+```text
+users/{google-auth-uid}/questionnaires/{share-token}
+shareTokens/{share-token}    # token → owner UID only; exact gets, never listable
 ```
 
-After deployment, sign in on the website with the admin account. Other Firebase accounts are denied unless their UID has an enabled `admins/{uid}` document. Vercel env vars provide Firebase web config only; no owner email or PIN is used.
+Firestore rules, not React route guards, enforce the boundary:
 
-## Direct Links — Client ko ID enter karne ki zaroorat nahi ✅
-- Owner jab questionnaire banata hai (`/new`), ab **full direct URL** dikhega: `https://yoursite.vercel.app/q/TOKEN`
-- Ye link **directly open hota hai** — client ko main site pe jaake ID enter karne ki zaroorat nahi
-- Client bas link pe click karega, questionnaire instantly khul jayega, bina login ke
-- Dashboard (`/owner`) me bhi har questionnaire ke saath full direct link + copy button hai
-- Main site (`/`) pe agar koi `?token=xxx` ya full link paste kare to auto-redirect to `/q/xxx`
+- Google users can list and manage only their own nested questionnaire collection.
+- A shared-link session can read exactly the questionnaire selected by the matching token index.
+- A shared-link session can update only `answers`, `updatedAt`, and `submittedAt`.
+- Clients cannot list users, questionnaires, or share indexes, and cannot create/delete data.
+- All other collections/paths are denied by default.
 
-## Code me kya change kiya hai (Tere liye summary)
-- `lib/env.ts` naya banaya — saare env vars yahan se centralized read hote hain, trim ho ke
-- `lib/firebase.ts` → ab `lib/env.ts` se config leta hai, Vercel-ready
-- `firestore.rules` + `admins/{uid}` → admin allowlist is keyed by Firebase UID, not an email hard-coded in the app
-- `.env.example` → Vercel ke exact naam ke saath, bas value khali — tu bas Vercel pe value daal
-- `components/Shell.tsx` → badge message updated for Vercel
-- `components/NewQuestionnaire.tsx` → ab full direct URL show karta hai, copy full link button
-- `components/OwnerDashboard.tsx` → har item ke saath direct link input + Open direct button
-- `components/Gate.tsx` → auto-redirect if ?token= in URL, plus info that /q/ links open directly
-- `vercel.json` → minimal config for Next.js
+## 6. Migrate existing records before retiring the old layout
+
+The previous release used `questionnaires/{token}`. The new rules do not expose that collection. Existing
+documents are not deleted, but they must be copied into the UID-scoped layout to become available in the
+new dashboard and keep their direct links working.
+
+Back up Firestore, then run the reviewable migration from a trusted machine:
+
+```bash
+npm install --no-save firebase-admin
+export GOOGLE_APPLICATION_CREDENTIALS=/secure/path/service-account.json
+export FIREBASE_PROJECT_ID=your-project-id
+npm run migrate:legacy -- --dry-run --owner-map=owners.json
+npm run migrate:legacy -- --owner-map=owners.json
+```
+
+`owners.json` maps an old `ownerUid` or `ownerEmail` to the destination Google Auth UID:
+
+```json
+{
+  "old-firebase-uid": "new-google-user-uid",
+  "old-owner@example.com": "new-google-user-uid"
+}
+```
+
+The script creates the nested questionnaire and its `shareTokens` index, preserves answers/timestamps/
+submission state, reports ambiguous records, and never deletes the old documents. Inspect and back up the
+legacy collection before any separately approved cleanup. Full migration notes are in `README.md`.
+
+## Troubleshooting
+
+- **Firebase setup needed**: Vercel variables were not available at build time. Check the names, save, and
+  redeploy.
+- **Unauthorized domain**: add the exact browser hostname in Firebase Authentication → Authorized domains.
+- **Google provider disabled**: enable Google in Authentication → Sign-in method.
+- **Client link cannot load/save**: enable Anonymous Authentication, deploy `firestore.rules`, and ensure
+  the token was copied exactly.
+- **Workspace read denied**: confirm the browser is signed in with Google and the included rules are
+  deployed to the same Firebase project as the web config.

@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { createQuestionnaire, storageMode, type Questionnaire } from '@/lib/store';
-import { currentAdminUser } from '@/lib/firebase';
-import { clearSession, isOwnerSession } from '@/lib/session';
+import { createQuestionnaire, type Questionnaire } from '@/lib/store';
+import { currentGoogleUser } from '@/lib/firebase';
 import { MODULE_COUNT, QUESTION_COUNT } from '@/lib/library';
 import { TopBar } from './Shell';
 
@@ -23,29 +22,22 @@ export default function NewQuestionnaire() {
 
   useEffect(() => {
     let active = true;
-    if (!isOwnerSession()) {
-      router.replace('/');
-      return () => { active = false; };
-    }
-    (async () => {
-      try {
-        const admin = await currentAdminUser();
+    currentGoogleUser()
+      .then((user) => {
         if (!active) return;
-        if (!admin) {
-          clearSession();
+        if (!user) {
           router.replace('/');
           return;
         }
         setReady(true);
-        // Capture origin for direct shareable link (Vercel URL included)
-        if (typeof window !== 'undefined') setOrigin(window.location.origin);
-      } catch {
-        if (!active) return;
-        clearSession();
-        router.replace('/');
-      }
-    })();
-    return () => { active = false; };
+        setOrigin(window.location.origin);
+      })
+      .catch(() => {
+        if (active) router.replace('/');
+      });
+    return () => {
+      active = false;
+    };
   }, [router]);
 
   async function create(e: React.FormEvent) {
@@ -68,7 +60,7 @@ export default function NewQuestionnaire() {
 
   async function copyLink() {
     if (!created) return;
-    const url = `${origin || (typeof window !== 'undefined' ? window.location.origin : '')}/q/${created.token}`;
+    const url = `${origin || window.location.origin}/q/${created.token}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -80,12 +72,19 @@ export default function NewQuestionnaire() {
 
   const fullLink = created ? `${origin || ''}/q/${created.token}` : '';
 
-  if (!ready) return null;
+  if (!ready) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-24 text-center">
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-spark-400" />
+        <p className="muted mt-4">Opening your workspace…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
       <TopBar>
-        <Link href="/owner" className="btn-ghost btn-sm">
+        <Link href="/dashboard" className="btn-ghost btn-sm">
           ← Dashboard
         </Link>
       </TopBar>
@@ -96,8 +95,8 @@ export default function NewQuestionnaire() {
             <div>
               <h1 className="text-xl font-bold text-white">New questionnaire</h1>
               <p className="muted mt-1">
-                {MODULE_COUNT} modules, {QUESTION_COUNT} questions. The client opens the link, answers at
-                their own pace — every keystroke autosaves to {storageMode() === 'firebase' ? 'Firestore' : 'this browser'}.
+                {MODULE_COUNT} modules, {QUESTION_COUNT} questions. Your client can answer at their own
+                pace; every change autosaves to your private Firebase workspace.
               </p>
             </div>
 
@@ -152,7 +151,7 @@ export default function NewQuestionnaire() {
               <button className="btn-primary" type="submit" disabled={busy}>
                 {busy ? 'Creating…' : 'Create questionnaire'}
               </button>
-              <Link href="/owner" className="btn-ghost">
+              <Link href="/dashboard" className="btn-ghost">
                 Cancel
               </Link>
             </div>
@@ -160,7 +159,7 @@ export default function NewQuestionnaire() {
         ) : (
           <div className="card-pad space-y-4">
             <div>
-              <span className="chip chip-on">Created</span>
+              <span className="chip chip-on">Created in your workspace</span>
               <h1 className="mt-3 text-xl font-bold text-white">{created.title}</h1>
               <p className="muted mt-1">
                 {created.clientName || 'Client'}
@@ -169,9 +168,12 @@ export default function NewQuestionnaire() {
             </div>
 
             <div>
-              <label className="label">Direct client link — opens without login</label>
+              <label className="label" htmlFor="direct-link">
+                Direct client link
+              </label>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 <input
+                  id="direct-link"
                   className="input flex-1 font-mono text-xs"
                   readOnly
                   value={fullLink || `/q/${created.token}`}
@@ -182,24 +184,24 @@ export default function NewQuestionnaire() {
                 </button>
               </div>
               <p className="help">
-                ✅ This link opens directly — no ID, no PIN needed. Just send it to your client.
-                Anyone with the link can answer this one questionnaire — no account needed.
+                Send this link to your client. It opens only this questionnaire and does not expose your
+                workspace or other questionnaires.
               </p>
-              {origin && (
-                <p className="mt-2 text-[11px] text-emerald-300">
-                  Direct URL: {fullLink} — client clicks and starts answering instantly.
-                </p>
-              )}
             </div>
 
             <div className="flex flex-wrap gap-2 pt-1">
-              <a href={fullLink || `/q/${created.token}`} target="_blank" rel="noopener noreferrer" className="btn-primary">
+              <a
+                href={fullLink || `/q/${created.token}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary"
+              >
                 Open direct link ↗
               </a>
               <Link href={`/q/${created.token}`} className="btn-ghost">
                 Preview here
               </Link>
-              <Link href="/owner" className="btn-ghost">
+              <Link href="/dashboard" className="btn-ghost">
                 Back to dashboard
               </Link>
               <button

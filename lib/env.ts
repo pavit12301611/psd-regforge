@@ -57,7 +57,10 @@ export const firebaseEnvConfig = {
 
 // Check if minimum required Firebase keys are present
 export const isFirebaseEnvConfigured = Boolean(
-  ENV.FIREBASE_API_KEY && ENV.FIREBASE_PROJECT_ID && ENV.FIREBASE_APP_ID
+  ENV.FIREBASE_API_KEY &&
+    ENV.FIREBASE_AUTH_DOMAIN &&
+    ENV.FIREBASE_PROJECT_ID &&
+    ENV.FIREBASE_APP_ID
 );
 
 // List of env names for Vercel dashboard (bas value daalni hai)

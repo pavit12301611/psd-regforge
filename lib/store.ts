@@ -1,12 +1,12 @@
 /**
- * RegForge — data layer.
+ * RegForge — Firestore data layer.
  *
- * One API, two backings:
- *   • Firebase   → Firestore collection "questionnaires" (auto when NEXT_PUBLIC_FIREBASE_* is set)
- *   • Local      → browser localStorage (so the app works with zero setup)
+ * Workspace data lives at users/{uid}/questionnaires/{token}. A separate,
+ * metadata-only shareTokens/{token} document lets a bearer of a direct link
+ * resolve exactly one nested questionnaire without exposing a collection query.
+ * The share index contains no answers or client brief.
  */
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -15,17 +15,23 @@ import {
   onSnapshot,
   orderBy,
   query,
-  setDoc,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import type { Answers } from './library';
-import { ensureSession, fb, firebaseConfigured } from './firebase';
+import {
+  currentGoogleUser,
+  ensureShareSession,
+  fb,
+  firebaseConfigured,
+  requireGoogleUser,
+} from './firebase';
 
-export const COLLECTION = 'questionnaires';
-const LOCAL_KEY = 'regforge.db.v1';
-const LOCAL_EVENT = 'regforge:db';
+export const USERS_COLLECTION = 'users';
+export const QUESTIONNAIRES_COLLECTION = 'questionnaires';
+export const SHARE_TOKENS_COLLECTION = 'shareTokens';
 
-export type StorageMode = 'firebase' | 'local';
+export type StorageMode = 'firebase' | 'unconfigured';
 
 export interface Questionnaire {
   token: string;
@@ -33,7 +39,6 @@ export interface Questionnaire {
   title: string;
   clientName: string;
   clientEmail: string;
-  ownerEmail: string;
   createdAt: number;
   updatedAt: number;
   submittedAt: number | null;
@@ -41,25 +46,37 @@ export interface Questionnaire {
 }
 
 export function storageMode(): StorageMode {
-  return firebaseConfigured ? 'firebase' : 'local';
+  return firebaseConfigured ? 'firebase' : 'unconfigured';
 }
 
 /* ------------------------------------------------------------------ helpers */
 
+/** 128 bits of randomness, URL-safe and substantially stronger than old tokens. */
 export function newToken(): string {
-  const bytes = new Uint8Array(8);
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(bytes);
-  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
-  return Array.from(bytes, (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 12);
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function requireFirebase() {
+  const f = fb();
+  if (!f) {
+    throw new Error('Firebase is not configured. Add the Firebase web app settings first.');
+  }
+  return f;
 }
 
 function clean(answers: Answers): Answers {
   const out: Answers = {};
-  for (const [k, v] of Object.entries(answers ?? {})) {
-    if (v === undefined || v === null) continue;
-    if (typeof v === 'string' && v.length === 0) continue;
-    if (Array.isArray(v) && v.length === 0) continue;
-    out[k] = v;
+  for (const [key, value] of Object.entries(answers ?? {})) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string' && value.length === 0) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    out[key] = value;
   }
   return out;
 }
@@ -71,7 +88,6 @@ function fromDoc(id: string, data: Record<string, unknown>): Questionnaire {
     title: (data.title as string) ?? 'Untitled project',
     clientName: (data.clientName as string) ?? '',
     clientEmail: (data.clientEmail as string) ?? '',
-    ownerEmail: (data.ownerEmail as string) ?? '',
     createdAt: Number(data.createdAt ?? Date.now()),
     updatedAt: Number(data.updatedAt ?? data.createdAt ?? Date.now()),
     submittedAt: (data.submittedAt as number | null) ?? null,
@@ -79,32 +95,31 @@ function fromDoc(id: string, data: Record<string, unknown>): Questionnaire {
   };
 }
 
-/* ------------------------------------------------------------- local backing */
-
-function readLocal(): Questionnaire[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(LOCAL_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as { questionnaires?: Questionnaire[] };
-    return (parsed.questionnaires ?? []).map((q) => ({ ...q, answers: q.answers ?? {} }));
-  } catch {
-    return [];
-  }
+interface ResolvedQuestionnaire {
+  ref: ReturnType<typeof doc>;
+  ownerUid: string;
 }
 
-function writeLocal(items: Questionnaire[]): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(LOCAL_KEY, JSON.stringify({ questionnaires: items }));
-  window.dispatchEvent(new Event(LOCAL_EVENT));
-}
+/**
+ * Resolve a share token through its metadata-only index. The index lookup is a
+ * single-document get; clients never query shareTokens or questionnaires.
+ */
+async function resolveSharedQuestionnaire(token: string): Promise<ResolvedQuestionnaire | null> {
+  if (!token) return null;
+  const f = requireFirebase();
+  const user = await ensureShareSession();
+  if (!user) return null;
 
-function upsertLocal(item: Questionnaire): void {
-  const items = readLocal();
-  const i = items.findIndex((q) => q.token === item.token);
-  if (i >= 0) items[i] = item;
-  else items.unshift(item);
-  writeLocal(items);
+  const index = await getDoc(doc(f.db, SHARE_TOKENS_COLLECTION, token));
+  if (!index.exists()) return null;
+  const data = index.data() as Record<string, unknown>;
+  const ownerUid = typeof data.ownerUid === 'string' ? data.ownerUid : '';
+  if (!ownerUid || data.token !== token) return null;
+
+  return {
+    ref: doc(f.db, USERS_COLLECTION, ownerUid, QUESTIONNAIRES_COLLECTION, token),
+    ownerUid,
+  };
 }
 
 /* -------------------------------------------------------------------- public */
@@ -116,177 +131,165 @@ export interface NewQuestionnaireInput {
 }
 
 export async function createQuestionnaire(input: NewQuestionnaireInput): Promise<Questionnaire> {
+  const f = requireFirebase();
+  const user = await requireGoogleUser();
   const now = Date.now();
   const token = newToken();
+  const clientName = input.clientName.trim();
   const base: Questionnaire = {
     token,
     projectId: token,
-    title: input.title.trim() || `${input.clientName || 'Client'} — website requirements`,
-    clientName: input.clientName.trim(),
+    title: input.title.trim() || `${clientName || 'Client'} — website requirements`,
+    clientName,
     clientEmail: input.clientEmail.trim().toLowerCase(),
-    ownerEmail: '',
     createdAt: now,
     updatedAt: now,
     submittedAt: null,
     answers: {},
   };
 
-  if (!firebaseConfigured) {
-    upsertLocal(base);
-    return base;
-  }
+  const questionnaireRef = doc(
+    f.db,
+    USERS_COLLECTION,
+    user.uid,
+    QUESTIONNAIRES_COLLECTION,
+    token,
+  );
+  const shareRef = doc(f.db, SHARE_TOKENS_COLLECTION, token);
+  const batch = writeBatch(f.db);
 
-  const f = fb();
-  const user = await ensureSession();
-  if (!f || !user) throw new Error('Firebase session unavailable — check your Firebase config and anonymous auth.');
-
-  const ref = doc(f.db, COLLECTION, token);
-  const owned = { ...base, ownerEmail: user.email ?? '' };
-  await setDoc(ref, { ...owned, ownerUid: user.uid });
-  return owned;
+  // Both writes are committed together. The rules require this index to point
+  // at a real questionnaire owned by the same Google UID.
+  batch.set(questionnaireRef, base);
+  batch.set(shareRef, {
+    token,
+    ownerUid: user.uid,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await batch.commit();
+  return base;
 }
 
+/** List only the signed-in user's nested questionnaire collection. */
 export async function listQuestionnaires(): Promise<Questionnaire[]> {
-  if (!firebaseConfigured) return readLocal();
-  const f = fb();
-  if (!f) return [];
-  await ensureSession();
-  const snap = await getDocs(query(collection(f.db, COLLECTION), orderBy('createdAt', 'desc')));
-  return snap.docs.map((d) => fromDoc(d.id, d.data() as Record<string, unknown>));
+  const f = requireFirebase();
+  const user = await requireGoogleUser();
+  const snap = await getDocs(
+    query(
+      collection(f.db, USERS_COLLECTION, user.uid, QUESTIONNAIRES_COLLECTION),
+      orderBy('createdAt', 'desc'),
+    ),
+  );
+  return snap.docs.map((item) => fromDoc(item.id, item.data() as Record<string, unknown>));
 }
 
+/** Load one questionnaire through the share-token index. */
 export async function getQuestionnaire(token: string): Promise<Questionnaire | null> {
-  if (!token) return null;
-  if (!firebaseConfigured) return readLocal().find((q) => q.token === token) ?? null;
-  const f = fb();
-  if (!f) return null;
-  await ensureSession();
-  const snap = await getDoc(doc(f.db, COLLECTION, token));
+  const resolved = await resolveSharedQuestionnaire(token);
+  if (!resolved) return null;
+  const snap = await getDoc(resolved.ref);
   if (!snap.exists()) return null;
   return fromDoc(snap.id, snap.data() as Record<string, unknown>);
 }
 
+/** Used only for a convenience label in the UI; rules remain authoritative. */
+export async function currentUserOwnsQuestionnaire(token: string): Promise<boolean> {
+  if (!firebaseConfigured || !token) return false;
+  const f = requireFirebase();
+  const user = await currentGoogleUser();
+  if (!user) return false;
+  const snap = await getDoc(doc(f.db, USERS_COLLECTION, user.uid, QUESTIONNAIRES_COLLECTION, token));
+  return snap.exists();
+}
+
 export async function saveAnswers(token: string, answers: Answers): Promise<void> {
-  const payload = clean(answers);
-  const now = Date.now();
-  if (!firebaseConfigured) {
-    const items = readLocal();
-    const item = items.find((q) => q.token === token);
-    if (!item) throw new Error('Questionnaire not found');
-    item.answers = payload;
-    item.updatedAt = now;
-    writeLocal(items);
-    return;
-  }
-  const f = fb();
-  const user = await ensureSession();
-  if (!f || !user) throw new Error('No Firebase session — answers not saved.');
-  await updateDoc(doc(f.db, COLLECTION, token), { answers: payload, updatedAt: now });
+  const resolved = await resolveSharedQuestionnaire(token);
+  if (!resolved) throw new Error('Questionnaire not found or its share link has expired.');
+  await updateDoc(resolved.ref, { answers: clean(answers), updatedAt: Date.now() });
 }
 
 export async function submitQuestionnaire(token: string, answers: Answers): Promise<void> {
-  const payload = clean(answers);
-  const now = Date.now();
-  if (!firebaseConfigured) {
-    const items = readLocal();
-    const item = items.find((q) => q.token === token);
-    if (!item) throw new Error('Questionnaire not found');
-    item.answers = payload;
-    item.submittedAt = now;
-    item.updatedAt = now;
-    writeLocal(items);
-    return;
-  }
-  const f = fb();
-  const user = await ensureSession();
-  if (!f || !user) throw new Error('No Firebase session — submission not saved.');
-  await updateDoc(doc(f.db, COLLECTION, token), {
-    answers: payload,
-    submittedAt: now,
-    updatedAt: now,
+  const resolved = await resolveSharedQuestionnaire(token);
+  if (!resolved) throw new Error('Questionnaire not found or its share link has expired.');
+  await updateDoc(resolved.ref, {
+    answers: clean(answers),
+    submittedAt: Date.now(),
+    updatedAt: Date.now(),
   });
 }
 
 export async function reopenQuestionnaire(token: string): Promise<void> {
-  const now = Date.now();
-  if (!firebaseConfigured) {
-    const items = readLocal();
-    const item = items.find((q) => q.token === token);
-    if (item) {
-      item.submittedAt = null;
-      item.updatedAt = now;
-      writeLocal(items);
-    }
-    return;
-  }
-  const f = fb();
-  const user = await ensureSession();
-  if (!f || !user) throw new Error('No Firebase session.');
-  await updateDoc(doc(f.db, COLLECTION, token), { submittedAt: null, updatedAt: now });
+  const resolved = await resolveSharedQuestionnaire(token);
+  if (!resolved) throw new Error('Questionnaire not found or its share link has expired.');
+  await updateDoc(resolved.ref, { submittedAt: null, updatedAt: Date.now() });
 }
 
+/** Delete a questionnaire and its share index only from its owner's workspace. */
 export async function deleteQuestionnaire(token: string): Promise<void> {
-  if (!firebaseConfigured) {
-    writeLocal(readLocal().filter((q) => q.token !== token));
-    return;
-  }
-  const f = fb();
-  const user = await ensureSession();
-  if (!f || !user) throw new Error('No Firebase session.');
-  await deleteDoc(doc(f.db, COLLECTION, token));
+  const f = requireFirebase();
+  const user = await requireGoogleUser();
+  const questionnaireRef = doc(
+    f.db,
+    USERS_COLLECTION,
+    user.uid,
+    QUESTIONNAIRES_COLLECTION,
+    token,
+  );
+  const shareRef = doc(f.db, SHARE_TOKENS_COLLECTION, token);
+  const share = await getDoc(shareRef);
+  const batch = writeBatch(f.db);
+  batch.delete(questionnaireRef);
+  if (share.exists()) batch.delete(shareRef);
+  await batch.commit();
 }
 
-/** Live list for the owner dashboard. Returns an unsubscribe function. */
+/** Live list for the signed-in user's workspace. */
 export function watchQuestionnaires(
   cb: (items: Questionnaire[]) => void,
   onError?: (message: string) => void,
 ): () => void {
-  if (!firebaseConfigured) {
-    const emit = () => cb(readLocal());
-    emit();
-    const interval = window.setInterval(emit, 1500);
-    window.addEventListener('storage', emit);
-    window.addEventListener(LOCAL_EVENT, emit);
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener('storage', emit);
-      window.removeEventListener(LOCAL_EVENT, emit);
-    };
-  }
-
-  let unsub = () => {};
   let disposed = false;
-  (async () => {
-    const f = fb();
-    if (!f) return;
-    await ensureSession();
-    if (disposed) return;
-    const q = query(collection(f.db, COLLECTION), orderBy('createdAt', 'desc'));
-    unsub = onSnapshot(
-      q,
-      (snap) => cb(snap.docs.map((d) => fromDoc(d.id, d.data() as Record<string, unknown>))),
-      (err) => {
-        console.warn('[regforge] snapshot failed', err);
-        const code = (err as { code?: string })?.code ?? '';
-        onError?.(
-          code === 'permission-denied'
-            ? 'Firestore refused the read — deploy firestore.rules (owner creates, clients fill in) and make sure Anonymous auth is enabled.'
-            : `Live sync failed (${code || 'error'}). Check your Firebase config in .env.local.`,
-        );
+  let unsubscribe = () => {};
+
+  void (async () => {
+    try {
+      const f = requireFirebase();
+      const user = await requireGoogleUser();
+      if (disposed) return;
+      const questionnaires = query(
+        collection(f.db, USERS_COLLECTION, user.uid, QUESTIONNAIRES_COLLECTION),
+        orderBy('createdAt', 'desc'),
+      );
+      unsubscribe = onSnapshot(
+        questionnaires,
+        (snap) => {
+          if (!disposed) {
+            cb(snap.docs.map((item) => fromDoc(item.id, item.data() as Record<string, unknown>)));
+          }
+        },
+        (err) => {
+          if (disposed) return;
+          console.warn('[regforge] workspace snapshot failed', err);
+          const code = (err as { code?: string })?.code ?? '';
+          onError?.(
+            code === 'permission-denied'
+              ? 'Firestore denied this workspace read. Deploy the included firestore.rules and sign in with Google.'
+              : `Live sync failed (${code || 'error'}). Check the Firebase project and its Firestore setup.`,
+          );
+          cb([]);
+        },
+      );
+    } catch (err) {
+      if (!disposed) {
+        onError?.(err instanceof Error ? err.message : 'Could not open the workspace.');
         cb([]);
-      },
-    );
+      }
+    }
   })();
 
   return () => {
     disposed = true;
-    unsub();
+    unsubscribe();
   };
-}
-
-/** Adds a seed/local sample so the dashboard is never a dead end in local mode. */
-export async function addDocCompat(): Promise<void> {
-  const f = fb();
-  if (!f) return;
-  await addDoc(collection(f.db, COLLECTION), {});
 }
