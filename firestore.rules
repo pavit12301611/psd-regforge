@@ -7,6 +7,16 @@ rules_version = '2';
 // one random token: it can resolve one metadata-only shareTokens/{token} index
 // document and then read/update answers on that one questionnaire. No client
 // path grants a list operation.
+//
+// The creator-only answer page (/dashboard/questionnaires/{token}) and the
+// AI-ready export read users/{auth.uid}/questionnaires/{token} through the
+// owner branch below. Because a workspace read requires a Google session whose
+// UID matches the path, an anonymous shared-link client can never open it, and
+// no rule change is needed to support it.
+//
+// Budget answers are stored in the answers map as strings in Indian Rupees
+// (for example "125000" for ₹1,25,000), so no numeric type or range check is
+// required here and very large amounts cannot overflow.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() {
@@ -118,6 +128,8 @@ service cloud.firestore {
       match /questionnaires/{token} {
         // Owners get their own document/list; shared-link viewers get only an
         // exact token lookup after the share index proves the path match.
+        // Single-document listeners (the live creator answer view) use `get`;
+        // the dashboard collection listener uses `list`. Both stay UID-scoped.
         allow get: if isWorkspaceUser(uid) || hasShareAccess(uid, token);
         allow list: if isWorkspaceUser(uid);
 

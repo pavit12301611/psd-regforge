@@ -76,10 +76,18 @@ profile, access marker, or workspace document manually.
 1. Open the Vercel URL. The page should show `Firebase live`.
 2. Choose **Continue with Google**. The app should open `/dashboard` and show an empty private workspace.
 3. Create a questionnaire at `/new`, copy its `/q/<token>` link, and open it in a private window.
-4. Type an answer and refresh; autosave should retain it. Submit and check the workspace dashboard.
-5. Sign in with a second Google account and confirm it sees an empty workspace, not the first account’s
-   questionnaire.
-6. In the private window, try a different token path manually. It should not return another questionnaire.
+4. Type an answer and refresh; autosave should retain it. In the budget question type `125000` and confirm
+   the field shows `₹1,25,000` (Indian grouping) before you leave it.
+5. Submit from the client window, then press **View answers** on the dashboard card. The creator view at
+   `/dashboard/questionnaires/<token>` should show every module, the stable question IDs, the client’s
+   answers, and “Not answered” for the rest.
+6. Use **Download .txt** and **Copy AI brief**; the file name follows the project title
+   (for example `the-daily-bloom-questionnaire.txt`) and the text contains the budget as `₹1,25,000`.
+7. Sign in with a second Google account and confirm it sees an empty workspace and that opening the first
+   account’s `/dashboard/questionnaires/<token>` URL shows a not-found/permission screen instead of data.
+8. In the anonymous private window, open `/dashboard/questionnaires/<token>`; it must show the
+   “Creator access only” screen rather than answers.
+9. In the private window, try a different token path manually. It should not return another questionnaire.
 
 ## 5. Data model and security
 
@@ -91,10 +99,16 @@ shareTokens/{share-token}    # token → owner UID only; exact gets, never lista
 Firestore rules, not React route guards, enforce the boundary:
 
 - Google users can list and manage only their own nested questionnaire collection.
+- The creator answer view and the TXT/JSON export read that same owner path, so they require the signed-in
+  Google UID that owns the document.
 - A shared-link session can read exactly the questionnaire selected by the matching token index.
 - A shared-link session can update only `answers`, `updatedAt`, and `submittedAt`.
 - Clients cannot list users, questionnaires, or share indexes, and cannot create/delete data.
 - All other collections/paths are denied by default.
+
+Budget answers are stored in the `answers` map as INR strings (for example `"125000"` for `₹1,25,000`), so
+existing documents without a budget value, and documents holding an old dollar-range answer, both keep
+working without a rule change or a data conversion.
 
 ## 6. Migrate existing records before retiring the old layout
 
@@ -111,6 +125,10 @@ export FIREBASE_PROJECT_ID=your-project-id
 npm run migrate:legacy -- --dry-run --owner-map=owners.json
 npm run migrate:legacy -- --owner-map=owners.json
 ```
+
+Existing answer data needs no conversion for the INR budget change: `budget.budget` kept its stable ID and
+old range answers are shown verbatim and flagged instead of being rewritten. Only the pre-multi-user
+collection needs the copy step below.
 
 `owners.json` maps an old `ownerUid` or `ownerEmail` to the destination Google Auth UID:
 
@@ -135,3 +153,8 @@ legacy collection before any separately approved cleanup. Full migration notes a
   the token was copied exactly.
 - **Workspace read denied**: confirm the browser is signed in with Google and the included rules are
   deployed to the same Firebase project as the web config.
+- **Creator answer page says “Creator access only”**: the page is intentionally limited to a Google
+  session that matches the document’s owner UID. Shared-link (anonymous) sessions and other Google
+  accounts must use `/q/<token>` or their own dashboard instead.
+- **Budget shows an old range instead of ₹**: that answer was saved before the INR change and is kept
+  exactly as stored. Type a new amount in the INR field to replace it (nothing is overwritten by itself).

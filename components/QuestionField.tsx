@@ -1,6 +1,7 @@
 'use client';
 
 import type { AnswerValue, Question } from '@/lib/library';
+import CurrencyField from './CurrencyField';
 
 interface Props {
   question: Question;
@@ -12,6 +13,10 @@ interface Props {
 
 export default function QuestionField({ question, value, onChange, number, invalid }: Props) {
   const options = question.options ?? [];
+  const helpId = `${question.id}-help`;
+  const fieldId = `${question.id}-input`;
+  const labelId = `${question.id}-label`;
+  const labelTargetsField = question.type === 'text' || question.type === 'textarea';
 
   function toggleOption(option: string) {
     const current = Array.isArray(value) ? value : [];
@@ -34,42 +39,75 @@ export default function QuestionField({ question, value, onChange, number, inval
         <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-white/[0.07] text-[11px] font-bold text-slate-300">
           {number}
         </span>
-        <label className="label flex-1">
+        <label
+          id={labelId}
+          className="label flex-1"
+          htmlFor={labelTargetsField ? fieldId : undefined}
+        >
           {question.label}
-          {question.required && <span className="ml-1 text-rose-300">*</span>}
+          {question.required && (
+            <span className="ml-1 text-rose-300" aria-hidden>
+              *
+            </span>
+          )}
+          {question.required && <span className="sr-only"> (required)</span>}
         </label>
       </div>
 
-      {question.help && <p className="help ml-9">{question.help}</p>}
+      {question.help && (
+        <p id={helpId} className="help ml-0 sm:ml-9">
+          {question.help}
+        </p>
+      )}
 
-      <div className="ml-9 mt-3">
+      <div className="mt-3 sm:ml-9">
         {question.type === 'text' && (
           <input
+            id={fieldId}
             className="input"
             placeholder={question.placeholder}
             value={(value as string) ?? ''}
             onChange={(e) => onChange(e.target.value)}
+            aria-invalid={invalid ? true : undefined}
+            aria-describedby={question.help ? helpId : undefined}
           />
         )}
 
         {question.type === 'textarea' && (
           <textarea
+            id={fieldId}
             className="input min-h-[104px] resize-y leading-relaxed"
             placeholder={question.placeholder}
             value={(value as string) ?? ''}
             onChange={(e) => onChange(e.target.value)}
+            aria-invalid={invalid ? true : undefined}
+            aria-describedby={question.help ? helpId : undefined}
+          />
+        )}
+
+        {question.type === 'currency' && (
+          <CurrencyField
+            id={question.id}
+            value={value}
+            onChange={onChange}
+            placeholder={question.placeholder}
+            required={question.required}
+            invalid={invalid}
+            describedById={question.help ? helpId : undefined}
+            labelledById={labelId}
           />
         )}
 
         {question.type === 'rating' && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" role="group" aria-label={question.label}>
             {[1, 2, 3, 4, 5].map((n) => (
               <button
                 key={n}
                 type="button"
                 onClick={() => onChange(value === n ? undefined : n)}
                 aria-pressed={value === n}
-                className={`h-11 w-11 rounded-xl border text-sm font-bold transition ${
+                aria-label={`${n} out of 5`}
+                className={`h-11 w-11 rounded-xl border text-sm font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-spark-400/70 ${
                   value === n
                     ? 'border-spark-400/60 bg-spark-500/20 text-white'
                     : 'border-white/[0.12] bg-white/[0.04] text-slate-300 hover:border-white/30'
@@ -85,11 +123,13 @@ export default function QuestionField({ question, value, onChange, number, inval
         )}
 
         {question.type === 'radio' && (
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={question.label}>
             {options.map((option) => (
               <label
                 key={option}
-                className={`option ${value === option ? 'option-on' : ''}`}
+                className={`option focus-within:ring-2 focus-within:ring-spark-400/60 ${
+                  value === option ? 'option-on' : ''
+                }`}
               >
                 <input
                   type="radio"
@@ -105,11 +145,13 @@ export default function QuestionField({ question, value, onChange, number, inval
         )}
 
         {question.type === 'checkbox' && (
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label={question.label}>
             {options.map((option) => (
               <label
                 key={option}
-                className={`option ${selected.includes(option) ? 'option-on' : ''}`}
+                className={`option focus-within:ring-2 focus-within:ring-spark-400/60 ${
+                  selected.includes(option) ? 'option-on' : ''
+                }`}
               >
                 <input
                   type="checkbox"
@@ -122,9 +164,10 @@ export default function QuestionField({ question, value, onChange, number, inval
             ))}
             {selected.length > 0 && (
               <p className="text-xs text-slate-400 sm:col-span-2">
-                {selected.length} selected — <button
+                {selected.length} selected —{' '}
+                <button
                   type="button"
-                  className="underline hover:text-slate-200"
+                  className="rounded underline hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-spark-400/70"
                   onClick={() => onChange([])}
                 >
                   clear

@@ -4,7 +4,7 @@
  * "*" = required by default. Options are written as pipe-separated strings.
  */
 
-export type QuestionType = 'text' | 'textarea' | 'radio' | 'checkbox' | 'rating';
+export type QuestionType = 'text' | 'textarea' | 'radio' | 'checkbox' | 'rating' | 'currency';
 
 export interface Question {
   /** Stable id, format "module.question" */
@@ -14,6 +14,8 @@ export interface Question {
   placeholder?: string;
   help?: string;
   options?: string[];
+  /** ISO currency code for `type: 'currency'` questions. Currently always INR. */
+  currency?: 'INR';
   required?: boolean;
 }
 
@@ -261,16 +263,19 @@ export const MODULES: LibraryModule[] = [
   {
     key: 'budget',
     title: 'Budget & pricing',
-    blurb: 'A tricky but essential conversation — get a realistic range.',
+    blurb: 'A tricky but essential conversation — captured as a free-form amount in Indian Rupees.',
     questions: [
       {
+        // Stable id kept on purpose: answers saved against the old dollar
+        // range radio list stay attached to `budget.budget` and are rendered
+        // as-is (see lib/answers.ts). The answer is now free-form INR.
         id: 'budget.budget',
-        type: 'radio',
+        type: 'currency',
+        currency: 'INR',
         label: 'What is your budget for this project?',
+        placeholder: 'e.g. ₹50,000',
+        help: 'Enter any amount in Indian Rupees (INR). You can include commas — e.g. ₹1,25,000 or ₹10,00,000.',
         required: true,
-        options: O(
-          'Under $1,000 | $1,000 – $3,000 | $3,000 – $7,000 | $7,000 – $15,000 | $15,000+ | Not sure yet — advise me',
-        ),
       },
       {
         id: 'budget.monthly',
@@ -436,11 +441,15 @@ export function findQuestion(id: string): Question | undefined {
   return ALL_QUESTIONS.find((q) => q.id === id);
 }
 
-/** An answer counts as filled when it is not empty/zero-length. */
+/**
+ * An answer counts as filled when it is not empty/zero-length.
+ * Currency answers are stored as canonical INR strings; a legacy answer saved
+ * by the previous radio-based question still counts as answered.
+ */
 export function isAnswered(q: Question, value: AnswerValue | undefined): boolean {
   if (value === undefined || value === null) return false;
   if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === 'number') return value > 0;
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0;
   return value.trim().length > 0;
 }
 
