@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ACCESS_PIN, OWNER_EMAIL, isCorrectPin, isOwnerEmail } from '@/lib/access';
-import { firebaseConfigured, ownerSignIn, readableAuthError } from '@/lib/firebase';
-import { getSession, setSession } from '@/lib/session';
+import { currentAdminUser, firebaseConfigured, adminSignIn, readableAuthError } from '@/lib/firebase';
+import { clearSession, getSession, setSession } from '@/lib/session';
 
 type Tab = 'owner' | 'client';
 
@@ -12,18 +11,21 @@ export default function Gate() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('owner');
   const [email, setEmail] = useState('');
-  const [pin, setPin] = useState('');
+  const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
-  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Already the owner on this browser? Skip the gate.
-  // Also: if URL has ?token=xxx or ?q=xxx or ?link=.../q/xxx, auto-redirect to /q/xxx directly — no ID entry needed on main site
+  // Restore the dashboard only if the persisted Firebase account is still allowlisted.
+  // Direct client links continue to work without an admin session.
   useEffect(() => {
     if (getSession()?.role === 'owner') {
-      router.replace('/owner');
-      return;
+      currentAdminUser()
+        .then((user) => {
+          if (user) router.replace('/owner');
+          else clearSession();
+        })
+        .catch(() => clearSession());
     }
     // Direct link auto-redirect: check query params for token/q/link
     if (typeof window !== 'undefined') {
@@ -44,42 +46,27 @@ export default function Gate() {
     }
   }, [router]);
 
-  const ownerEmailTyped = isOwnerEmail(email);
-  const pinOk = isCorrectPin(pin);
-
   async function enter(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    setNotice('');
 
-    if (!email.trim()) {
-      setError('Enter your email address first.');
+    if (!firebaseConfigured) {
+      setError('Firebase is required for secure admin sign-in. Configure the Firebase web app settings first.');
       return;
     }
-    // Owner email is hard-coded → allowed in without the PIN.
-    if (!ownerEmailTyped && !pinOk) {
-      setError(
-        pin.trim()
-          ? 'That PIN is not correct.'
-          : 'The PIN is required unless you sign in with the owner email.',
-      );
+    if (!email.trim() || !password) {
+      setError('Enter your admin email and password.');
       return;
     }
 
     setBusy(true);
     try {
-      // Firebase Auth runs alongside the gate. For the owner the access PIN doubles
-      // as the account password, and the account is created on first login.
-      if (firebaseConfigured) {
-        try {
-          await ownerSignIn(ownerEmailTyped ? OWNER_EMAIL : email.trim(), pinOk ? pin.trim() : ACCESS_PIN);
-        } catch (err) {
-          console.warn('[regforge] firebase sign-in failed:', err);
-          setNotice(`${readableAuthError(err)} Continuing without Firebase sync.`);
-        }
-      }
-      setSession(email, 'owner'); // PIN-verified → dashboard rights
+      const user = await adminSignIn(email.trim(), password);
+      setSession(user.email ?? email, 'owner');
       router.push('/owner');
+    } catch (err) {
+      console.warn('[regforge] admin sign-in failed:', err);
+      setError(readableAuthError(err));
     } finally {
       setBusy(false);
     }
@@ -120,13 +107,12 @@ export default function Gate() {
               onClick={() => {
                 setTab(t);
                 setError('');
-                setNotice('');
               }}
               className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
                 tab === t ? 'bg-spark-500 text-white shadow' : 'text-slate-300 hover:text-white'
               }`}
             >
-              {t === 'owner' ? 'Owner access' : 'Open a questionnaire'}
+              {t === 'owner' ? 'Admin sign in' : 'Open a questionnaire'}
             </button>
           ))}
         </div>
@@ -145,41 +131,26 @@ export default function Gate() {
                 className="input mt-1.5"
                 type="email"
                 inputMode="email"
-                autoComplete="email"
-                placeholder="you@example.com"
+                autoComplete="username"
+                placeholder="admin@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
-              <p className="help">
-                <span className="font-mono text-slate-300">{OWNER_EMAIL}</span> gets in without the
-                PIN.
-              </p>
+              <p className="help">Only Firebase accounts allowlisted as admins can open the dashboard.</p>
             </div>
 
             <div>
-              <label className="label" htmlFor="pin">
-                Access PIN {ownerEmailTyped && <span className="text-emerald-300">(not needed)</span>}
-              </label>
+              <label className="label" htmlFor="password">Password</label>
               <input
-                id="pin"
-                className={`input mt-1.5 tracking-[0.4em] ${
-                  pinOk ? 'border-emerald-400/50' : ''
-                }`}
+                id="password"
+                className="input mt-1.5"
                 type="password"
-                inputMode="numeric"
                 autoComplete="current-password"
-                placeholder={'•'.repeat(ACCESS_PIN.length)}
-                maxLength={12}
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
+                placeholder="Your Firebase Auth password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
-              <p className="help">
-                {ownerEmailTyped
-                  ? 'Owner email detected — the PIN is optional.'
-                  : pinOk
-                    ? 'PIN accepted.'
-                    : 'Required unless you sign in with the owner email.'}
-              </p>
+              <p className="help">There is no public sign-up. A Firebase admin must add your account to the admins allowlist.</p>
             </div>
 
             {error && (
@@ -187,20 +158,14 @@ export default function Gate() {
                 {error}
               </p>
             )}
-            {notice && (
-              <p className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-                {notice}
-              </p>
-            )}
-
             <button className="btn-primary w-full" disabled={busy} type="submit">
-              {busy ? 'Checking…' : 'Enter dashboard'}
+              {busy ? 'Signing in…' : 'Sign in as admin'}
             </button>
 
             <p className="text-center text-[11px] text-slate-500">
               {firebaseConfigured
-                ? 'Backed by Firebase Authentication + Firestore.'
-                : 'Firebase keys not set yet — running in local mode. See README.'}
+                ? 'Secure admin access is verified with Firebase Authentication + Firestore.'
+                : 'Firebase is required for admin sign-in. Configure it before accessing the dashboard.'}
             </p>
           </form>
         ) : (
@@ -252,8 +217,7 @@ export default function Gate() {
       </div>
 
       <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-500">
-        Access PIN lives in <span className="font-mono">lib/access.ts</span> — hard-coded, never stored
-        in a database.
+        Admin access is controlled by Firebase Authentication and the Firestore admins allowlist.
       </p>
     </main>
   );

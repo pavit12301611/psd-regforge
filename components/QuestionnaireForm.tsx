@@ -18,6 +18,7 @@ import {
   submitQuestionnaire,
   type Questionnaire,
 } from '@/lib/store';
+import { currentAdminUser } from '@/lib/firebase';
 import { isOwnerSession } from '@/lib/session';
 import QuestionField from './QuestionField';
 
@@ -36,9 +37,18 @@ export default function QuestionnaireForm({ token }: { token: string }) {
   const [showMissing, setShowMissing] = useState(false);
   const [activeModule, setActiveModule] = useState(MODULES[0].key);
   const [justSaved, setJustSaved] = useState<string>('');
+  const [owner, setOwner] = useState(false);
 
   const dirty = useRef(false);
-  const owner = useMemo(() => (typeof window === 'undefined' ? false : isOwnerSession()), []);
+
+  useEffect(() => {
+    if (!isOwnerSession()) return;
+    let alive = true;
+    currentAdminUser()
+      .then((user) => { if (alive) setOwner(Boolean(user)); })
+      .catch(() => { if (alive) setOwner(false); });
+    return () => { alive = false; };
+  }, []);
 
   /* ------------------------------------------------------------------- load */
   useEffect(() => {

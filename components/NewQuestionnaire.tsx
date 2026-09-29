@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createQuestionnaire, storageMode, type Questionnaire } from '@/lib/store';
-import { isOwnerSession } from '@/lib/session';
+import { currentAdminUser } from '@/lib/firebase';
+import { clearSession, isOwnerSession } from '@/lib/session';
 import { MODULE_COUNT, QUESTION_COUNT } from '@/lib/library';
 import { TopBar } from './Shell';
 
@@ -21,13 +22,30 @@ export default function NewQuestionnaire() {
   const [origin, setOrigin] = useState('');
 
   useEffect(() => {
+    let active = true;
     if (!isOwnerSession()) {
       router.replace('/');
-      return;
+      return () => { active = false; };
     }
-    setReady(true);
-    // Capture origin for direct shareable link (Vercel URL included)
-    if (typeof window !== 'undefined') setOrigin(window.location.origin);
+    (async () => {
+      try {
+        const admin = await currentAdminUser();
+        if (!active) return;
+        if (!admin) {
+          clearSession();
+          router.replace('/');
+          return;
+        }
+        setReady(true);
+        // Capture origin for direct shareable link (Vercel URL included)
+        if (typeof window !== 'undefined') setOrigin(window.location.origin);
+      } catch {
+        if (!active) return;
+        clearSession();
+        router.replace('/');
+      }
+    })();
+    return () => { active = false; };
   }, [router]);
 
   async function create(e: React.FormEvent) {

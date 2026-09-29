@@ -37,7 +37,6 @@ JSON, `KEY=value` lines, ya poora `.env` block paste karoge tab bhi chalega.
 ### Alternatives (agar chahiye)
 - **Vercel ka .env paste**: Key field me poora `.env.example` jaisa block paste kar — Vercel khud alag variables bana deta hai.
 - **Alag alag variables**: `NEXT_PUBLIC_FIREBASE_API_KEY` ya bina prefix `FIREBASE_API_KEY` — dono chalte hain.
-- Optional: `OWNER_EMAIL`, `ACCESS_PIN` (ya `NEXT_PUBLIC_` wale) — ya `FIREBASE_CONFIG` blob me hi likh de.
 
 > ⚠️ Env var badalne ke baad **Redeploy** zaroori hai — values build time pe bundle me jaati hain.
 
@@ -60,17 +59,18 @@ npm run dev
 ## Firebase Console me kya enable karna hai
 1. Authentication → Sign-in method:
    - Email/Password → Enable
-   - Anonymous → Enable
-2. Firestore Database → Create database → Start in production mode
-3. Firestore Rules deploy:
+   - Anonymous → Enable (for questionnaire clients)
+2. Authentication → Users → **Add user** to create an admin email/password account.
+3. Firestore Database → Create database → Start in production mode.
+4. Copy the new admin user's **UID** from Authentication → Users. In Firestore create document `admins/{UID}` with boolean field `enabled: true`. The app cannot grant itself admin access; only Firebase Console/Admin SDK can manage this allowlist.
+5. Publish the included Firestore rules:
 ```bash
 npm i -g firebase-tools
 firebase login
 firebase deploy --only firestore:rules
 ```
 
-Bas! Ab Vercel pe env vars set hain, code `lib/env.ts` se auto read kar lega.
-Koi hard-coded key nahi hai code me — sirf naam defined hain, value Vercel se aayegi.
+After deployment, sign in on the website with the admin account. Other Firebase accounts are denied unless their UID has an enabled `admins/{uid}` document. Vercel env vars provide Firebase web config only; no owner email or PIN is used.
 
 ## Direct Links — Client ko ID enter karne ki zaroorat nahi ✅
 - Owner jab questionnaire banata hai (`/new`), ab **full direct URL** dikhega: `https://yoursite.vercel.app/q/TOKEN`
@@ -82,7 +82,7 @@ Koi hard-coded key nahi hai code me — sirf naam defined hain, value Vercel se 
 ## Code me kya change kiya hai (Tere liye summary)
 - `lib/env.ts` naya banaya — saare env vars yahan se centralized read hote hain, trim ho ke
 - `lib/firebase.ts` → ab `lib/env.ts` se config leta hai, Vercel-ready
-- `lib/access.ts` → OWNER_EMAIL aur ACCESS_PIN bhi env se override ho sakte hain (optional)
+- `firestore.rules` + `admins/{uid}` → admin allowlist is keyed by Firebase UID, not an email hard-coded in the app
 - `.env.example` → Vercel ke exact naam ke saath, bas value khali — tu bas Vercel pe value daal
 - `components/Shell.tsx` → badge message updated for Vercel
 - `components/NewQuestionnaire.tsx` → ab full direct URL show karta hai, copy full link button
