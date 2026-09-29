@@ -2,22 +2,24 @@
 
 import Link from 'next/link';
 import { MODULE_COUNT, QUESTION_COUNT } from '@/lib/library';
-import { storageMode } from '@/lib/store';
+import { firebaseConfigured } from '@/lib/firebase';
 
 export function storageLabel(): string {
-  return storageMode() === 'firebase' ? 'Firebase live' : 'Local mode';
+  return firebaseConfigured ? 'Firebase live' : 'Firebase setup needed';
 }
 
 export function StorageBadge() {
-  const firebase = storageMode() === 'firebase';
   return (
-    <span className={`chip ${firebase ? 'chip-on' : 'chip-wait'}`} title={
-      firebase
-        ? 'Connected to Firebase Auth + Firestore'
-        : 'No Firebase keys found — data is kept in this browser. Add NEXT_PUBLIC_FIREBASE_* to .env.local locally, or set them in Vercel Dashboard → Settings → Environment Variables.'
-    }>
+    <span
+      className={`chip ${firebaseConfigured ? 'chip-on' : 'chip-wait'}`}
+      title={
+        firebaseConfigured
+          ? 'Firebase Authentication + Firestore are configured'
+          : 'Add the Firebase web-app configuration to enable the app'
+      }
+    >
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      {firebase ? 'Firebase live' : 'Local mode'}
+      {storageLabel()}
     </span>
   );
 }

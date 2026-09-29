@@ -10,3 +10,7 @@ dist/
 next-env.d.ts
 .DS_Store
 npm-debug.log*
+# Never commit migration credentials or local owner mappings.
+service-account*.json
+*-firebase-adminsdk-*.json
+owners.json

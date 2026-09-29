@@ -1,137 +1,203 @@
 # RegForge
 
-Private requirement-questionnaire builder for **you and your clients only**.
-You create a questionnaire, send the client one link, and their answers build the brief
-that turns their idea into a real project. Answers autosave as they type.
+RegForge is a multi-user requirement-questionnaire app for consultants, studios, and their clients.
+Each person signs in with Google and receives a private Firebase workspace. A workspace user creates a
+questionnaire, sends its direct link, and watches the client’s autosaved answers. A shared link is scoped
+to one questionnaire; it is not a way to browse a workspace.
 
-- **12 modules · 50 questions** (stable ids `module.question`, `*` = required)
-- **Admin access:** Firebase email/password sign-in plus a Firestore UID allowlist
-- Only accounts explicitly enabled in `admins/{uid}` can open the dashboard
-- Backend: **Firebase Authentication + Firestore** (client links use anonymous auth)
+- **12 modules · 50 questions** with stable IDs (`module.question`)
+- **Google Authentication** for workspace users, with sign-in and sign-out
+- **Firestore ownership** enforced by Firebase Auth UID and Security Rules
+- **Direct client links** with anonymous Firebase sessions, autosave, and submit/reopen support
+- **No privileged account, email allowlist, PIN, app password, or manually created access document**
 
----
+## Routes and flow
 
-## 1. Run it
+| Route | Access | Purpose |
+| --- | --- | --- |
+| `/` | Anyone | Continue with Google, or paste/open a shared questionnaire link |
+| `/dashboard` | Signed-in Google user | That user’s private questionnaire workspace |
+| `/new` | Signed-in Google user | Create a questionnaire and copy its direct link |
+| `/q/<token>` | Exact share token | Read and update that one questionnaire’s answers/submission fields |
+| `/owner` | Redirect only | Legacy bookmark redirect to `/dashboard`; it is not a separate access area |
+
+Typical flow: **Google sign-in → `/dashboard` → `/new` → copy `/q/<token>` → client answers →
+answers autosave → workspace dashboard updates live.**
+
+## Run locally
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000
-```
-
-Useful checks:
-
-```bash
-npm run check:library   # verifies 12 modules / 50 questions / unique ids
-npm run build           # production build
-```
-
-## 2. How it works
-
-| Route | Who | What |
-| --- | --- | --- |
-| `/` | anyone | Admin sign-in or client link entry |
-| `/owner` | allowlisted Firebase admin | dashboard: questionnaires, live progress %, copy client link, delete |
-| `/new` | allowlisted Firebase admin | create a questionnaire → shareable link |
-| `/q/<token>` | client | the questionnaire itself: 12 modules, autosave, submit |
-
-Flow: **`/new` → copy `/q/<token>` → send to client → client answers → you watch progress live in `/owner`.**
-
-Admin access is not tied to a particular email. Create the Firebase Authentication account,
-then add its Firebase UID as an enabled admin in Firestore (`admins/{uid}`). Email/password
-sign-in alone does not grant dashboard access; accounts without that marker are rejected.
-
-## 3. Firebase setup (Auth + Firestore) — Vercel Ready ✅
-
-The app auto-detects Firebase: add the keys and it switches from local mode to Firebase.
-**Code is Vercel-ready — env var names are centralized in `lib/env.ts`. Just put values in Vercel.**
-
-### Local dev:
-```bash
 cp .env.example .env.local
-# fill values in .env.local
+# Fill .env.local with the Firebase web-app configuration.
+npm run dev       # http://localhost:3000
 ```
 
-### Vercel deploy — simplest: ONE variable
-Add **one** variable: Key `FIREBASE_CONFIG`, Value = the Firebase web-app config snippet pasted as-is
-(`apiKey: "...", authDomain: "...", projectId: "...", ...`). Redeploy. That's it — see `VERCEL_SETUP.md`.
-You can also paste a whole `.env` block into Vercel's Key field, or use the individual names below
-(with or without `NEXT_PUBLIC_`).
+Checks:
 
-### Vercel deploy — individual variables (optional):
-1. Vercel Dashboard → Your Project → Settings → Environment Variables
-2. Add these exact names (from `.env.example`) — **names already defined, only values needed**:
+```bash
+npm run check:library
+npm run build
+```
+
+Firebase configuration is required for workspace creation and shared-link storage. If it is missing, the
+app shows a setup message rather than silently storing multi-user data in browser storage.
+
+## Firebase setup
+
+### 1. Create the Firebase project and web app
+
+1. Create or select a Firebase project.
+2. In **Project settings → Your apps**, add a Web app and copy its config.
+3. In **Authentication → Sign-in method**, enable:
+   - **Google** — this is the only workspace sign-in shown by RegForge.
+   - **Anonymous** — used only when a client opens a direct questionnaire link.
+4. In **Authentication → Settings → Authorized domains**, add the production Vercel domain and any
+   preview/custom domains that will open the app. `localhost` is normally already present for local dev.
+5. Create Firestore in production mode.
+
+There is no Firebase Console user bootstrap step and no Firestore access document to create. The first
+successful Google sign-in writes `users/{uid}` automatically through the app’s normal authenticated
+request.
+
+### 2. Configure the web app
+
+Copy `.env.example` to `.env.local` and provide either one `FIREBASE_CONFIG` value or the individual
+variables. The web config is intended for the browser; do not put a service-account private key in any
+`NEXT_PUBLIC_*` or `FIREBASE_CONFIG` variable.
+
+Individual variables:
+
+```env
+NEXT_PUBLIC_FIREBASE_API_KEY=...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
+NEXT_PUBLIC_FIREBASE_APP_ID=...
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=... # optional
+```
+
+`FIREBASE_CONFIG` may contain the Firebase JavaScript config snippet, JSON, or a `.env`-style block. The
+build-time resolver in `lib/resolve-env.mjs` accepts the same formats used by the original deployment.
+
+### 3. Deploy Firestore rules
+
+Set the real project ID in `.firebaserc`, then deploy the checked-in rules:
+
+```bash
+npm install -g firebase-tools
+firebase login
+firebase use YOUR_FIREBASE_PROJECT_ID
+firebase deploy --only firestore:rules
+```
+
+Read the rules before deploying. They intentionally deny every unlisted collection and deny all list
+operations for share tokens and shared-link viewers.
+
+## Data model and security boundary
+
+```text
+users/{uid}
+  uid, displayName, email, photoURL, createdAt, updatedAt
+
+users/{uid}/questionnaires/{token}
+  token, projectId, title, clientName, clientEmail
+  createdAt, updatedAt, submittedAt
+  answers: { "basics.name": "…", "pages.sections": ["Hero / intro"], "basics.satisfaction": 4 }
+
+shareTokens/{token}
+  token, ownerUid, createdAt, updatedAt
+```
+
+`shareTokens/{token}` is a metadata-only lookup index. It contains no answers or brief fields, cannot be
+listed, and is readable only as an exact document get by an authenticated Google or anonymous session.
+The token is a bearer capability, so send it only to the intended client and treat a leaked link as
+access to that one questionnaire.
+
+Firestore rules enforce the following, independently of UI checks:
+
+- A Google user can read/list/create/update/delete only `users/{their-auth-uid}/questionnaires/*`.
+- A Google user can initialize and update only `users/{their-auth-uid}`.
+- A shared-link viewer can resolve one exact `shareTokens/{token}` document and then read that matching
+  nested questionnaire only.
+- A shared-link viewer can update only `answers`, `updatedAt`, and `submittedAt`; they cannot change the
+  title, client details, token, UID, or any other user’s document.
+- Shared-link viewers cannot list `shareTokens`, users, or questionnaires, and cannot create/delete
+  questionnaires.
+- The app creates a questionnaire and its share index in one batch; rules require the index and nested
+  document to agree on the same owner UID and token.
+- The legacy top-level `questionnaires/{token}` collection is denied by the default rule after migration.
+
+Anonymous Auth is not a workspace role. It exists only to make a direct client link work without asking a
+client to create an account. A browser that already has a Google session keeps that session while using a
+shared link, but still receives only the token-scoped permissions above.
+
+## Vercel deployment
+
+1. Import the repository as a Next.js project.
+2. In **Vercel → Settings → Environment Variables**, add either:
+   - one `FIREBASE_CONFIG` variable containing the web config, or
+   - the individual `NEXT_PUBLIC_FIREBASE_*` variables.
+3. Add the values to Production, Preview, and Development as appropriate.
+4. Add the Vercel production/preview domains to Firebase Authentication’s Authorized domains.
+5. Redeploy after changing environment variables; Firebase config is resolved at build time.
+6. Confirm the site shows `Firebase live`, sign in with Google, create a questionnaire, and test a direct
+   link in a separate browser/private window.
+
+The same steps, including the Firebase Console checklist, are in `VERCEL_SETUP.md`.
+
+## Existing questionnaire migration
+
+The previous version stored Firebase records at `questionnaires/{token}` and may have used an old account UID.
+The new app does **not** silently delete those records. The new rules leave that legacy collection denied
+until records are copied into the UID-scoped layout. The old no-Firebase browser fallback may also leave
+`regforge.db.v1` in a browser’s local storage; it is not deleted, but it has no trustworthy Firebase UID,
+so the new app deliberately does not auto-attach it to whichever Google account uses that browser. Export
+or review that browser-local data explicitly before retiring the old build.
+
+Migration is an explicit, reviewable Admin SDK operation:
+
+1. Back up/export the Firestore database before changing anything.
+2. Make sure each destination UID exists in Firebase Authentication and represents the user’s Google
+   identity. If an old email/password UID will not be the Google UID, create a mapping file, for example:
+
+   ```json
+   {
+     "old-firebase-uid": "new-google-user-uid",
+     "old-owner@example.com": "new-google-user-uid"
+   }
    ```
-   NEXT_PUBLIC_FIREBASE_API_KEY
-   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-   NEXT_PUBLIC_FIREBASE_PROJECT_ID
-   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
-   NEXT_PUBLIC_FIREBASE_APP_ID
-   NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID (optional)
-   ```
-   - Add to all 3: Production, Preview, Development
-3. Redeploy
 
-Full Hindi guide: see `VERCEL_SETUP.md`
-
-### Firebase project setup:
-1. Create a project → **Add app → Web**, copy the config.
-2. Locally `cp .env.example .env.local` and fill in:
-
-   ```env
-   NEXT_PUBLIC_FIREBASE_API_KEY=...
-   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
-   NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project
-   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
-   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
-   NEXT_PUBLIC_FIREBASE_APP_ID=...
-   NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=... (optional)
-   ```
-
-3. **Authentication → Sign-in method**: enable **Email/Password** and **Anonymous**.
-   - Clients get anonymous sessions to open and save their shared questionnaire.
-   - Admin accounts are not created by the website. Create the account in Firebase Console → Authentication → Users.
-4. **Bootstrap an admin:** copy that user's Firebase **UID** from Authentication → Users, then in Firestore create document `admins/{UID}` with field `enabled` (boolean) set to `true`. Only an administrator with console/Admin SDK access can change this allowlist.
-5. **Firestore Database → Rules**, then deploy/publish the included rules:
+   The keys can be a legacy `ownerUid` or `ownerEmail`; values must be the destination Firebase Auth UIDs.
+3. Install the migration tool outside the browser bundle and provide a service-account credential:
 
    ```bash
-   npm i -g firebase-tools
-   firebase login
-   # put your project id in .firebaserc, then:
-   firebase deploy --only firestore:rules
+   npm install --no-save firebase-admin
+   export GOOGLE_APPLICATION_CREDENTIALS=/secure/path/service-account.json
+   export FIREBASE_PROJECT_ID=your-project-id
+   npm run migrate:legacy -- --dry-run --owner-map=owners.json
+   npm run migrate:legacy -- --owner-map=owners.json
    ```
 
-   `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` is printed in the Firebase console app config.
+   If the legacy `ownerUid` already is the correct Firebase Auth UID, the map can be omitted. Documents
+   without a usable UID, missing Auth user, unsafe token, or conflicting destination are reported and
+   skipped rather than guessed.
+4. Check the copied workspace and each old direct link. The script creates both
+   `users/{uid}/questionnaires/{token}` and `shareTokens/{token}` and preserves answers, timestamps,
+   submission state, and legacy metadata needed for review.
+5. Only after verification, keep the legacy collection as a rollback copy or remove it manually through
+   a separately approved backup/retention process. The script itself never deletes legacy documents.
+6. Deploy `firestore.rules` and test ownership with two different Google accounts plus a shared-link
+   private window.
 
-Data model — one document per questionnaire, doc id = share token:
+The migration script is `scripts/migrate-legacy-questionnaires.mjs`; `--dry-run` is recommended first.
+It uses Admin SDK credentials only on the operator’s machine/server and never exposes them to Next.js.
 
-```
-questionnaires/{token}
-  title, clientName, clientEmail, ownerEmail
-  createdAt, updatedAt, submittedAt   // submittedAt null until the client submits
-  answers: { "basics.name": "…", "pages.sections": ["Hero / intro", …], "basics.satisfaction": 4 }
-```
+## Question library
 
-### Security rules (`firestore.rules`)
-
-| | read | write |
-| --- | --- | --- |
-| Admin UIDs in `admins/{uid}` with `enabled: true` | ✅ all questionnaires | ✅ create / update / delete |
-| Clients (anonymous session + share token) | ✅ questionnaire document | ✅ update answers/submission fields only |
-| Other signed-in accounts | ❌ | ❌ |
-
-Admin marker documents are read-only to their own signed-in user and cannot be edited by app clients. Everything else is denied.
-
-## 4. No Firebase yet? Local mode
-
-With no Firebase keys, questionnaire data can use that browser's `localStorage`, but secure
-admin sign-in/dashboard access is disabled. Configure Firebase before creating or sharing live questionnaires.
-
-## 5. Question bank
-
-`lib/library.ts` holds all 12 modules and 50 questions with the exact ids, labels, option
-lists, placeholders and help text. Edit that one file to change wording — ids are stable,
-so existing answers survive edits.
+`lib/library.ts` holds all 12 modules and 50 questions. Stable IDs mean existing answers survive wording
+edits. Run `npm run check:library` after changing the bank.
 
 | # | Module | Questions | # | Module | Questions |
 | --- | --- | --- | --- | --- | --- |
@@ -142,20 +208,5 @@ so existing answers survive edits.
 | 5 | content — Content | 4 | 11 | marketing — Marketing & SEO | 4 |
 | 6 | ecommerce — E-commerce | 5 | 12 | extra — Anything else | 2 |
 
-Required by default (`*`): `basics.name`, `basics.one_liner`, `pages.pages`,
-`features.features`, `budget.budget`, `goals.must_haves`.
-
-## 6. Vercel Env Architecture
-
-- `next.config.mjs` + `lib/resolve-env.mjs` resolve all accepted env styles at build time (inlined into the client bundle as `NEXT_PUBLIC_REGFORGE_ENV`)
-- Centralized env reader: `lib/env.ts` — trims values, provides defaults, exports `VERCEL_ENV_NAMES`
-- `lib/firebase.ts` reads from `lib/env.ts`, not directly from `process.env` (cleaner for Vercel)
-- `.env.example` contains exact Vercel variable names — copy-paste to Vercel dashboard, just fill values
-- `vercel.json` minimal config for Next.js
-- If no Firebase envs, app runs in local mode (badge shows Local mode)
-
-## 7. Notes
-
-- `firestore.rules` grants dashboard access only to enabled UIDs in the `admins` collection. Clients use anonymous auth and a questionnaire share token.
-- Add or revoke admins by creating/removing `admins/{uid}` or setting `enabled: false` in the Firebase Console (or trusted Admin SDK); app clients cannot change this list.
-- See `VERCEL_SETUP.md` for Hindi step-by-step Vercel deploy guide.
+Required by default: `basics.name`, `basics.one_liner`, `pages.pages`, `features.features`,
+`budget.budget`, and `goals.must_haves`.

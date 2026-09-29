@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'RegForge — requirement questionnaires',
+  title: 'RegForge — private requirement workspaces',
   description:
-    'RegForge turns a client idea into a clear brief: 12 modules, 50 questions, shareable link, autosaved answers.',
+    'RegForge gives each Google-signed-in user a private workspace for shareable, autosaved requirement questionnaires.',
 };
 
 export const viewport: Viewport = {

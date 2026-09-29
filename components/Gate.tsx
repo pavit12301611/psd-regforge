@@ -2,222 +2,178 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { currentAdminUser, firebaseConfigured, adminSignIn, readableAuthError } from '@/lib/firebase';
-import { clearSession, getSession, setSession } from '@/lib/session';
+import {
+  currentGoogleUser,
+  fbSignOut,
+  firebaseConfigured,
+  googleSignIn,
+  readableAuthError,
+} from '@/lib/firebase';
+import { StorageBadge } from './Shell';
 
-type Tab = 'owner' | 'client';
+function tokenFromInput(raw: string): string {
+  const value = raw.trim();
+  const match = value.match(/\/q\/([A-Za-z0-9_-]+)/);
+  if (match) return match[1];
+  return value.replace(/^\/+/, '').replace(/^q\//, '').split(/[?#]/, 1)[0];
+}
 
 export default function Gate() {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>('owner');
+  const [checking, setChecking] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
 
-  // Restore the dashboard only if the persisted Firebase account is still allowlisted.
-  // Direct client links continue to work without an admin session.
   useEffect(() => {
-    if (getSession()?.role === 'owner') {
-      currentAdminUser()
-        .then((user) => {
-          if (user) router.replace('/owner');
-          else clearSession();
-        })
-        .catch(() => clearSession());
+    let active = true;
+
+    // Keep direct links convenient when a client receives ?token=… or ?link=…
+    // instead of the canonical /q/{token} URL.
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('token') || params.get('q') || params.get('id') || params.get('link') || '';
+    const directToken = tokenFromInput(raw);
+    if (directToken) {
+      router.replace(`/q/${directToken}`);
+      return () => {
+        active = false;
+      };
     }
-    // Direct link auto-redirect: check query params for token/q/link
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const fromQuery = params.get('token') || params.get('q') || params.get('id') || params.get('link') || '';
-      let t = fromQuery.trim();
-      if (t) {
-        // If full URL passed as ?link=https://.../q/abc123
-        const m = t.match(/\/q\/([A-Za-z0-9_-]+)/);
-        if (m) t = m[1];
-        else t = t.replace(/^\/+/, '').replace(/^q\//, '');
-        if (t) {
-          setSession('client', 'client');
-          router.replace(`/q/${t}`);
-          return;
+
+    currentGoogleUser()
+      .then((user) => {
+        if (!active) return;
+        if (user) {
+          setEmail(user.email ?? '');
+          router.replace('/dashboard');
+        } else {
+          setChecking(false);
         }
-      }
-    }
+      })
+      .catch((err) => {
+        if (!active) return;
+        setChecking(false);
+        setError(readableAuthError(err));
+      });
+
+    return () => {
+      active = false;
+    };
   }, [router]);
 
-  async function enter(e: React.FormEvent) {
-    e.preventDefault();
+  async function signIn() {
     setError('');
-
     if (!firebaseConfigured) {
-      setError('Firebase is required for secure admin sign-in. Configure the Firebase web app settings first.');
-      return;
-    }
-    if (!email.trim() || !password) {
-      setError('Enter your admin email and password.');
+      setError('Firebase is not configured yet. Add the Firebase web app settings before signing in.');
       return;
     }
 
     setBusy(true);
     try {
-      const user = await adminSignIn(email.trim(), password);
-      setSession(user.email ?? email, 'owner');
-      router.push('/owner');
+      const user = await googleSignIn();
+      setEmail(user.email ?? '');
+      router.push('/dashboard');
     } catch (err) {
-      console.warn('[regforge] admin sign-in failed:', err);
+      console.warn('[regforge] Google sign-in failed:', err);
       setError(readableAuthError(err));
     } finally {
       setBusy(false);
     }
   }
 
-  function openClient(e: React.FormEvent) {
+  async function signOut() {
+    await fbSignOut();
+    setEmail('');
+    setError('');
+  }
+
+  function openShared(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    const raw = token.trim();
-    if (!raw) {
-      setError('Paste the questionnaire link or token the owner sent you.');
+    const directToken = tokenFromInput(token);
+    if (!directToken) {
+      setError('Paste the direct questionnaire link or its share token.');
       return;
     }
-    const match = raw.match(/\/q\/([A-Za-z0-9_-]+)/);
-    const t = match ? match[1] : raw.replace(/^\//, '');
-    setSession(email || 'client', 'client');
-    router.push(`/q/${t}`);
+    router.push(`/q/${directToken}`);
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-10">
+    <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center px-4 py-10">
       <div className="mb-6 text-center">
         <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-spark-500 to-emerald-400 text-2xl font-black text-ink-900 shadow-xl shadow-spark-600/30">
           R
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-white">RegForge</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Requirement questionnaires — for me and my clients only.
+        <div className="flex items-center justify-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-white">RegForge</h1>
+          <StorageBadge />
+        </div>
+        <p className="mt-2 text-sm text-slate-400">
+          Private requirement workspaces for independent teams and their clients.
         </p>
       </div>
 
-      <div className="card-pad">
-        <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-white/[0.05] p-1">
-          {(['owner', 'client'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => {
-                setTab(t);
-                setError('');
-              }}
-              className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-                tab === t ? 'bg-spark-500 text-white shadow' : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              {t === 'owner' ? 'Admin sign in' : 'Open a questionnaire'}
-            </button>
-          ))}
+      <div className="card-pad space-y-5">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Your workspace</h2>
+          <p className="muted mt-1">
+            Sign in with Google to create and manage your own private questionnaires. Every workspace is
+            isolated by Firebase Authentication UID.
+          </p>
         </div>
 
-        {tab === 'owner' ? (
-          <form onSubmit={enter} className="space-y-4">
-            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-[11px] text-emerald-200">
-              ✅ Client links like <span className="font-mono">yoursite.com/q/abc123</span> open directly — no ID, no PIN needed on main site.
-            </div>
-            <div>
-              <label className="label" htmlFor="email">
-                Email
-              </label>
-              <input
-                id="email"
-                className="input mt-1.5"
-                type="email"
-                inputMode="email"
-                autoComplete="username"
-                placeholder="admin@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              <p className="help">Only Firebase accounts allowlisted as admins can open the dashboard.</p>
-            </div>
-
-            <div>
-              <label className="label" htmlFor="password">Password</label>
-              <input
-                id="password"
-                className="input mt-1.5"
-                type="password"
-                autoComplete="current-password"
-                placeholder="Your Firebase Auth password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <p className="help">There is no public sign-up. A Firebase admin must add your account to the admins allowlist.</p>
-            </div>
-
-            {error && (
-              <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-                {error}
-              </p>
-            )}
-            <button className="btn-primary w-full" disabled={busy} type="submit">
-              {busy ? 'Signing in…' : 'Sign in as admin'}
-            </button>
-
-            <p className="text-center text-[11px] text-slate-500">
-              {firebaseConfigured
-                ? 'Secure admin access is verified with Firebase Authentication + Firestore.'
-                : 'Firebase is required for admin sign-in. Configure it before accessing the dashboard.'}
-            </p>
-          </form>
+        {firebaseConfigured ? (
+          <button className="btn-primary w-full" type="button" onClick={signIn} disabled={checking || busy}>
+            <span className="grid h-5 w-5 place-items-center rounded bg-white text-xs font-bold text-slate-700">G</span>
+            {busy ? 'Opening Google sign-in…' : checking ? 'Checking session…' : 'Continue with Google'}
+          </button>
         ) : (
-          <form onSubmit={openClient} className="space-y-4">
-            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-[11px] text-emerald-200">
-              ✅ Best way: Client should open direct link <span className="font-mono">/q/TOKEN</span> — it opens instantly without entering ID here. Use this box only if you have just the token.
-            </div>
-            <div>
-              <label className="label" htmlFor="token">
-                Questionnaire link or token (direct links work without this)
-              </label>
-              <input
-                id="token"
-                className="input mt-1.5 font-mono text-xs"
-                placeholder="https://yoursite.vercel.app/q/ab12cd34ef56 or just ab12cd34ef56"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-              />
-              <p className="help">
-                Paste the full direct link owner sent you — it will open instantly. No account needed, answers save straight to your questionnaire. Direct /q/ links bypass this page.
-              </p>
-            </div>
+          <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-3 text-sm text-amber-100">
+            Add the Firebase web-app configuration to enable Google sign-in. See the setup guide in the
+            repository README.
+          </div>
+        )}
 
-            <div>
-              <label className="label" htmlFor="client-email">
-                Your email <span className="font-normal text-slate-400">(optional)</span>
-              </label>
-              <input
-                id="client-email"
-                className="input mt-1.5"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
+        {email && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100">
+            <span>Signed in as {email}</span>
+            <button type="button" className="underline hover:no-underline" onClick={signOut}>
+              Sign out
+            </button>
+          </div>
+        )}
 
-            {error && (
-              <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-                {error}
-              </p>
-            )}
+        {error && (
+          <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+            {error}
+          </p>
+        )}
 
-            <button className="btn-primary w-full" type="submit">
-              Open questionnaire
+        <div className="border-t border-white/10 pt-5">
+          <h2 className="text-sm font-semibold text-white">Opening a shared questionnaire?</h2>
+          <p className="help">
+            Direct links open without a workspace sign-in. The link grants access to that one questionnaire
+            only; it cannot list or open other workspaces.
+          </p>
+          <form onSubmit={openShared} className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              className="input font-mono text-xs"
+              placeholder="https://your-site.com/q/share-token"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              aria-label="Questionnaire link or share token"
+            />
+            <button className="btn-ghost shrink-0" type="submit">
+              Open link
             </button>
           </form>
-        )}
+        </div>
       </div>
 
       <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-500">
-        Admin access is controlled by Firebase Authentication and the Firestore admins allowlist.
+        Google Authentication protects workspaces. Shared questionnaire links are scoped to one random
+        token, and Firestore rules enforce both boundaries.
       </p>
     </main>
   );

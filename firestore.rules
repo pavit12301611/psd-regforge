@@ -1,45 +1,102 @@
 rules_version = '2';
 
-// RegForge — Firestore security rules.
-// Admins are explicitly allowlisted by Firebase UID in admins/{uid}.
+// RegForge Firestore rules.
+//
+// Workspace data is nested under users/{uid}. Google users may access only
+// their own nested collection. A direct client link is a bearer capability for
+// one random token: it can resolve one metadata-only shareTokens/{token} index
+// document and then read/update answers on that one questionnaire. No client
+// path grants a list operation.
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isAdmin() {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isGoogleUser() {
+      return isSignedIn()
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
     function isAnonymousClient() {
-      return request.auth != null
+      return isSignedIn()
         && request.auth.token.firebase.sign_in_provider == 'anonymous';
     }
 
-    // Admin markers can only be managed in Firebase Console / trusted Admin SDK.
-    // Each signed-in user may check only their own marker; clients cannot list or edit them.
-    match /admins/{uid} {
-      allow get: if request.auth != null && request.auth.uid == uid;
-      allow list, create, update, delete: if false;
+    function isWorkspaceUser(uid) {
+      return isGoogleUser() && request.auth.uid == uid;
     }
 
-    match /questionnaires/{token} {
-      // Clients use the unguessable share token; admins can access all documents.
-      allow get: if isAdmin() || isAnonymousClient();
-      allow list: if isAdmin();
+    function isShareViewer() {
+      return isGoogleUser() || isAnonymousClient();
+    }
 
-      // Only an allowlisted admin can create/remove questionnaires.
-      allow create: if isAdmin()
-        && request.resource.data.token == token
-        && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.answers is map
+    function shareIndex(token) {
+      return /databases/$(database)/documents/shareTokens/$(token);
+    }
+
+    function questionnairePath(uid, token) {
+      return /databases/$(database)/documents/users/$(uid)/questionnaires/$(token);
+    }
+
+    // A token is useful only when its exact index document points to the exact
+    // nested path being requested. The index has no answers or questionnaire
+    // metadata beyond the owner UID and timestamps.
+    function hasShareAccess(uid, token) {
+      return isShareViewer()
+        && exists(shareIndex(token))
+        && get(shareIndex(token)).data.token == token
+        && get(shareIndex(token)).data.ownerUid == uid;
+    }
+
+    function validWorkspaceDocument(uid) {
+      return request.resource.data.keys().hasAll([
+          'uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.displayName is string
+        && request.resource.data.email is string
+        && request.resource.data.photoURL is string
         && request.resource.data.createdAt is int
         && request.resource.data.updatedAt is int;
+    }
 
-      // Anonymous clients may edit answers/submission fields only.
-      allow update: if isAdmin() || (
-        isAnonymousClient()
+    function validQuestionnaireDocument(uid, token) {
+      return request.resource.data.keys().hasAll([
+          'token', 'projectId', 'title', 'clientName', 'clientEmail',
+          'createdAt', 'updatedAt', 'submittedAt', 'answers'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'token', 'projectId', 'title', 'clientName', 'clientEmail',
+          'createdAt', 'updatedAt', 'submittedAt', 'answers',
+          // These optional fields are accepted for explicitly migrated legacy
+          // documents; new app writes do not create them.
+          'ownerUid', 'ownerEmail'
+        ])
+        && request.resource.data.token == token
+        && request.resource.data.projectId is string
+        && request.resource.data.title is string
+        && request.resource.data.clientName is string
+        && request.resource.data.clientEmail is string
+        && request.resource.data.createdAt is int
+        && request.resource.data.updatedAt is int
+        && (
+          request.resource.data.submittedAt == null
+          || request.resource.data.submittedAt is int
+        )
+        && request.resource.data.answers is map
+        && (!request.resource.data.keys().hasAny(['ownerUid'])
+          || request.resource.data.ownerUid == uid)
+        && (!request.resource.data.keys().hasAny(['ownerEmail'])
+          || request.resource.data.ownerEmail is string);
+    }
+
+    function validClientQuestionnaireUpdate(uid, token) {
+      return hasShareAccess(uid, token)
         && resource.data.token == token
-        && resource.data.ownerUid is string
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['answers', 'updatedAt', 'submittedAt'])
         && request.resource.data.answers is map
@@ -47,13 +104,67 @@ service cloud.firestore {
         && (
           request.resource.data.submittedAt == null
           || request.resource.data.submittedAt is int
-        )
-      );
-
-      allow delete: if isAdmin();
+        );
     }
 
-    // Deny every other collection/document by default.
+    match /users/{uid} {
+      // A workspace profile is convenience metadata, never an authorization
+      // marker. A user can only initialize/read/update their own profile.
+      allow get: if isWorkspaceUser(uid);
+      allow create: if isWorkspaceUser(uid) && validWorkspaceDocument(uid);
+      allow update: if isWorkspaceUser(uid) && validWorkspaceDocument(uid);
+      allow delete, list: if false;
+
+      match /questionnaires/{token} {
+        // Owners get their own document/list; shared-link viewers get only an
+        // exact token lookup after the share index proves the path match.
+        allow get: if isWorkspaceUser(uid) || hasShareAccess(uid, token);
+        allow list: if isWorkspaceUser(uid);
+
+        // The client creates the questionnaire and the share index in one
+        // batch. Requiring getAfter prevents orphan or cross-user indexes.
+        allow create: if isWorkspaceUser(uid)
+          && validQuestionnaireDocument(uid, token)
+          && getAfter(shareIndex(token)).data.ownerUid == uid
+          && getAfter(shareIndex(token)).data.token == token;
+
+        // A Google user may manage every field of a questionnaire in their own
+        // workspace. A shared-link viewer can change only answer/submission
+        // fields and cannot change ownership or questionnaire metadata.
+        allow update: if (
+            isWorkspaceUser(uid) && validQuestionnaireDocument(uid, token)
+          ) || validClientQuestionnaireUpdate(uid, token);
+
+        allow delete: if isWorkspaceUser(uid);
+      }
+    }
+
+    match /shareTokens/{token} {
+      // Exact get only. There is deliberately no list/read-all permission and
+      // the index contains no answers or client brief.
+      allow get: if isShareViewer();
+      allow list: if false;
+
+      // This is normally committed with the nested questionnaire. It may also
+      // be created later by the same Google user for an existing own document.
+      allow create: if isWorkspaceUser(request.resource.data.ownerUid)
+        && request.resource.data.keys().hasAll(['token', 'ownerUid', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['token', 'ownerUid', 'createdAt', 'updatedAt'])
+        && request.resource.data.token == token
+        && request.resource.data.ownerUid is string
+        && request.resource.data.createdAt is int
+        && request.resource.data.updatedAt is int
+        && getAfter(questionnairePath(request.auth.uid, token)).data.token == token;
+
+      // The app does not mutate index metadata. Deleting it is allowed only
+      // for the same Google UID that owns the indexed workspace document.
+      allow delete: if isWorkspaceUser(resource.data.ownerUid)
+        && resource.data.token == token;
+      allow update: if false;
+    }
+
+    // Legacy top-level questionnaires and every other collection are denied
+    // by default. Run the documented migration before using old records.
     match /{document=**} {
       allow read, write: if false;
     }
