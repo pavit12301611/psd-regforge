@@ -1,39 +1,52 @@
 /**
  * RegForge — Centralized ENV handling for Vercel + Local.
  *
- * Vercel pe jaake bas inhi naam ke variables ki value daalni hai:
- * - NEXT_PUBLIC_FIREBASE_API_KEY
- * - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
- * - NEXT_PUBLIC_FIREBASE_PROJECT_ID
- * - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
- * - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
- * - NEXT_PUBLIC_FIREBASE_APP_ID
- * - NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID (optional)
- * - NEXT_PUBLIC_OWNER_EMAIL (optional, default: pavitsingh1611@gmail.com)
- * - NEXT_PUBLIC_ACCESS_PIN (optional, default: 5161211)
- *
- * Code mein sirf is file se env read hota hai, taaki Vercel pe naam pehle se set ho.
+ * You do NOT need to create variables one by one. On Vercel, add ONE variable:
+ *   Name:  FIREBASE_CONFIG
+ *   Value: paste the Firebase config snippet as-is (apiKey, authDomain, projectId, ...)
+ * Or paste a whole .env block into Vercel's Key field. See lib/resolve-env.mjs.
  */
 
-function env(key: string, fallback = ''): string {
-  const v = process.env[key];
-  if (typeof v === 'string') return v.trim();
-  return fallback;
+// NOTE: next.config.mjs resolves every accepted variable style (single FIREBASE_CONFIG blob,
+// pasted .env, prefixed / un-prefixed names) into NEXT_PUBLIC_REGFORGE_ENV at build time.
+// It must be referenced literally so Next.js inlines it into the browser bundle.
+type Resolved = Partial<
+  Record<
+    | 'apiKey'
+    | 'authDomain'
+    | 'projectId'
+    | 'storageBucket'
+    | 'messagingSenderId'
+    | 'appId'
+    | 'measurementId'
+    | 'ownerEmail'
+    | 'accessPin',
+    string
+  >
+>;
+
+function load(): Resolved {
+  try {
+    return JSON.parse(process.env.NEXT_PUBLIC_REGFORGE_ENV || '{}') as Resolved;
+  } catch {
+    return {};
+  }
 }
 
-export const ENV = {
-  // Firebase - REQUIRED for Firebase mode (Vercel pe yahi naam use karne hain)
-  FIREBASE_API_KEY: env('NEXT_PUBLIC_FIREBASE_API_KEY'),
-  FIREBASE_AUTH_DOMAIN: env('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN'),
-  FIREBASE_PROJECT_ID: env('NEXT_PUBLIC_FIREBASE_PROJECT_ID'),
-  FIREBASE_STORAGE_BUCKET: env('NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET'),
-  FIREBASE_MESSAGING_SENDER_ID: env('NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID'),
-  FIREBASE_APP_ID: env('NEXT_PUBLIC_FIREBASE_APP_ID'),
-  FIREBASE_MEASUREMENT_ID: env('NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID'),
+const R = load();
 
-  // Access - OPTIONAL, Vercel pe override kar sakte ho
-  OWNER_EMAIL: env('NEXT_PUBLIC_OWNER_EMAIL', env('OWNER_EMAIL', 'pavitsingh1611@gmail.com')),
-  ACCESS_PIN: env('NEXT_PUBLIC_ACCESS_PIN', env('ACCESS_PIN', '5161211')),
+export const ENV = {
+  FIREBASE_API_KEY: R.apiKey ?? '',
+  FIREBASE_AUTH_DOMAIN: R.authDomain ?? '',
+  FIREBASE_PROJECT_ID: R.projectId ?? '',
+  FIREBASE_STORAGE_BUCKET: R.storageBucket ?? '',
+  FIREBASE_MESSAGING_SENDER_ID: R.messagingSenderId ?? '',
+  FIREBASE_APP_ID: R.appId ?? '',
+  FIREBASE_MEASUREMENT_ID: R.measurementId ?? '',
+
+  // Access - OPTIONAL overrides
+  OWNER_EMAIL: (R.ownerEmail || 'pavitsingh1611@gmail.com').toLowerCase(),
+  ACCESS_PIN: R.accessPin || '5161211',
 } as const;
 
 // Firebase config object ready for initializeApp

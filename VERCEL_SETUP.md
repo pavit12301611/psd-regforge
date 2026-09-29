@@ -7,35 +7,39 @@ Bhai ye steps follow kar, 2 min me live ho jayega:
 - Framework: Next.js auto-detect ho jayega
 - Build Command: `npm run build` (default)
 
-## 2. Environment Variables daal (IMPORTANT)
-Vercel Dashboard → Tumhara Project → Settings → Environment Variables me jaa ke
-**yeh saare naam add kar aur bas value daal de** — naam pehle se `.env.example` me hain:
+## 2. Keys daal — SIRF EK variable (naye names banane ki zaroorat nahi)
 
-| Variable Name (Key) | Kahan se milega | Required |
-|---|---|---|
-| `NEXT_PUBLIC_FIREBASE_API_KEY` | Firebase Console → Project Settings → General → Your apps → Web app → Config → apiKey | YES |
-| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Same Config → authDomain | YES |
-| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Same Config → projectId | YES |
-| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Same Config → storageBucket | YES |
-| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Same Config → messagingSenderId | YES |
-| `NEXT_PUBLIC_FIREBASE_APP_ID` | Same Config → appId | YES |
-| `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | Same Config → measurementId (Analytics) | Optional |
-| `NEXT_PUBLIC_OWNER_EMAIL` | Tumhara owner email, default: pavitsingh1611@gmail.com | Optional |
-| `NEXT_PUBLIC_ACCESS_PIN` | Dashboard PIN, default: 5161211 | Optional |
+Vercel → Project → Settings → Environment Variables → **Add New**
 
-**Har variable ko 3 environments me add karna:**
-- ✅ Production
-- ✅ Preview  
-- ✅ Development
+| Field | Kya daalna hai |
+|---|---|
+| **Key** | `FIREBASE_CONFIG` |
+| **Value** | Firebase ka config snippet **as-is paste** kar de (neeche dekh) |
+| Environments | Production + Preview + Development |
 
-**Kaise daalna hai:**
-1. Vercel → Settings → Environment Variables → Add New
-2. Name: `NEXT_PUBLIC_FIREBASE_API_KEY` (exact same, copy paste)
-3. Value: Firebase se copy kiya hua key
-4. Environments: All 3 select kar
-5. Save
+Firebase Console → Project Settings → General → Your apps → Web app → **Config** — jo ye dikhta hai wahi pura paste kar:
 
-Same process baaki 5-6 keys ke liye repeat kar.
+```js
+const firebaseConfig = {
+  apiKey: "AIza...",
+  authDomain: "xxx.firebaseapp.com",
+  projectId: "xxx",
+  storageBucket: "xxx.firebasestorage.app",
+  messagingSenderId: "123456",
+  appId: "1:123456:web:abc",
+  measurementId: "G-XXXX"
+};
+```
+
+Code khud `apiKey`, `projectId`, `appId` etc. nikaal leta hai (build time pe, `next.config.mjs` → `lib/resolve-env.mjs`).
+JSON, `KEY=value` lines, ya poora `.env` block paste karoge tab bhi chalega.
+
+### Alternatives (agar chahiye)
+- **Vercel ka .env paste**: Key field me poora `.env.example` jaisa block paste kar — Vercel khud alag variables bana deta hai.
+- **Alag alag variables**: `NEXT_PUBLIC_FIREBASE_API_KEY` ya bina prefix `FIREBASE_API_KEY` — dono chalte hain.
+- Optional: `OWNER_EMAIL`, `ACCESS_PIN` (ya `NEXT_PUBLIC_` wale) — ya `FIREBASE_CONFIG` blob me hi likh de.
+
+> ⚠️ Env var badalne ke baad **Redeploy** zaroori hai — values build time pe bundle me jaati hain.
 
 ## 3. Deploy
 - Save ke baad Vercel auto redeploy karega

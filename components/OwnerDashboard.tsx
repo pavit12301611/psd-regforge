@@ -152,7 +152,7 @@ export default function OwnerDashboard() {
 
           {storageMode() === 'local' && (
             <p className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-              Local mode: add your Firebase keys to <span className="font-mono">.env.local</span> to sync
+              Local mode: add your Firebase keys (one <span className="font-mono">FIREBASE_CONFIG</span> variable on Vercel, or <span className="font-mono">.env.local</span>) to sync
               across devices (see README).
             </p>
           )}
