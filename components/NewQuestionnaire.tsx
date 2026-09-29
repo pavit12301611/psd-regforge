@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation';
 import { createQuestionnaire, type Questionnaire } from '@/lib/store';
 import { currentGoogleUser } from '@/lib/firebase';
 import { MODULE_COUNT, QUESTION_COUNT } from '@/lib/library';
+import { ToastStack, useToasts } from './Toast';
 import { TopBar } from './Shell';
+import Icon from './Icon';
 
 export default function NewQuestionnaire() {
   const router = useRouter();
@@ -19,6 +21,7 @@ export default function NewQuestionnaire() {
   const [created, setCreated] = useState<Questionnaire | null>(null);
   const [copied, setCopied] = useState(false);
   const [origin, setOrigin] = useState('');
+  const { toasts, push, dismiss } = useToasts();
 
   useEffect(() => {
     let active = true;
@@ -51,26 +54,47 @@ export default function NewQuestionnaire() {
     try {
       const item = await createQuestionnaire({ title, clientName, clientEmail });
       setCreated(item);
+      push('Questionnaire created — send the link to your client.', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create the questionnaire.');
+      const message = err instanceof Error ? err.message : 'Could not create the questionnaire.';
+      setError(message);
+      push(message, 'error');
     } finally {
       setBusy(false);
     }
   }
 
+  function linkFor(item: Questionnaire) {
+    return `${origin || window.location.origin}/q/${item.token}`;
+  }
+
   async function copyLink() {
     if (!created) return;
-    const url = `${origin || window.location.origin}/q/${created.token}`;
+    const url = linkFor(created);
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
+      push('Direct client link copied.', 'success');
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
       window.prompt('Copy this link:', url);
     }
   }
 
-  const fullLink = created ? `${origin || ''}/q/${created.token}` : '';
+  async function shareLink() {
+    if (!created) return;
+    const url = linkFor(created);
+    const share = (navigator as Navigator & { share?: (data: ShareData) => Promise<void> }).share;
+    if (typeof share === 'function') {
+      try {
+        await share.call(navigator, { title: created.title, url });
+        return;
+      } catch (err) {
+        if ((err as { name?: string })?.name === 'AbortError') return;
+      }
+    }
+    await copyLink();
+  }
 
   if (!ready) {
     return (
@@ -81,15 +105,17 @@ export default function NewQuestionnaire() {
     );
   }
 
+  const fullLink = created ? linkFor(created) : '';
+
   return (
-    <div className="min-h-screen">
-      <TopBar>
-        <Link href="/dashboard" className="btn-ghost btn-sm">
-          ← Dashboard
+    <div className="min-h-dvh">
+      <TopBar storageBadge={false}>
+        <Link href="/dashboard" className="btn-ghost btn-sm px-3">
+          <Icon name="chevron-right" className="h-4 w-4 rotate-180" /> Dashboard
         </Link>
       </TopBar>
 
-      <main className="mx-auto max-w-2xl space-y-6 px-4 py-8 sm:px-6">
+      <main className="pad-safe-x mx-auto max-w-2xl px-4 pb-10 pt-4 sm:px-6 sm:pt-8">
         {!created ? (
           <form onSubmit={create} className="card-pad space-y-4">
             <div>
@@ -110,6 +136,8 @@ export default function NewQuestionnaire() {
                 placeholder="e.g. The Daily Bloom — website"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
+                autoComplete="organization"
+                enterKeyHint="next"
               />
             </div>
 
@@ -124,6 +152,8 @@ export default function NewQuestionnaire() {
                   placeholder="e.g. Amara Okafor"
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
+                  autoComplete="name"
+                  enterKeyHint="next"
                 />
               </div>
               <div>
@@ -134,34 +164,39 @@ export default function NewQuestionnaire() {
                   id="clientEmail"
                   className="input mt-1.5"
                   type="email"
+                  inputMode="email"
                   placeholder="client@example.com"
                   value={clientEmail}
                   onChange={(e) => setClientEmail(e.target.value)}
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  enterKeyHint="done"
                 />
               </div>
             </div>
 
             {error && (
-              <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              <p className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs leading-relaxed text-rose-200">
                 {error}
               </p>
             )}
 
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button className="btn-primary" type="submit" disabled={busy}>
+            <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center">
+              <button className="btn-primary w-full sm:w-auto" type="submit" disabled={busy}>
                 {busy ? 'Creating…' : 'Create questionnaire'}
               </button>
-              <Link href="/dashboard" className="btn-ghost">
+              <Link href="/dashboard" className="btn-ghost w-full sm:w-auto">
                 Cancel
               </Link>
             </div>
           </form>
         ) : (
-          <div className="card-pad space-y-4">
+          <div className="card-pad space-y-5">
             <div>
               <span className="chip chip-on">Created in your workspace</span>
-              <h1 className="mt-3 text-xl font-bold text-white">{created.title}</h1>
-              <p className="muted mt-1">
+              <h1 className="mt-2.5 text-xl font-bold leading-snug text-white">{created.title}</h1>
+              <p className="muted mt-1 break-words">
                 {created.clientName || 'Client'}
                 {created.clientEmail ? ` · ${created.clientEmail}` : ''}
               </p>
@@ -171,41 +206,47 @@ export default function NewQuestionnaire() {
               <label className="label" htmlFor="direct-link">
                 Direct client link
               </label>
-              <div className="mt-1.5 flex flex-wrap gap-2">
-                <input
-                  id="direct-link"
-                  className="input flex-1 font-mono text-xs"
-                  readOnly
-                  value={fullLink || `/q/${created.token}`}
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-                <button className="btn-ghost" type="button" onClick={copyLink}>
-                  {copied ? 'Copied ✓' : 'Copy full link'}
-                </button>
-              </div>
+              <input
+                id="direct-link"
+                className="input mt-1.5 font-mono text-base sm:text-xs"
+                readOnly
+                value={fullLink || `/q/${created.token}`}
+                onFocus={(e) => e.currentTarget.select()}
+              />
               <p className="help">
                 Send this link to your client. It opens only this questionnaire and does not expose your
                 workspace or other questionnaires.
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2 pt-1">
-              <a
-                href={fullLink || `/q/${created.token}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-primary"
-              >
-                Open direct link ↗
-              </a>
-              <Link href={`/q/${created.token}`} className="btn-ghost">
-                Preview here
-              </Link>
-              <Link href="/dashboard" className="btn-ghost">
+            <div className="flex flex-col gap-2">
+              <button className="btn-primary w-full" type="button" onClick={shareLink}>
+                <Icon name="share" className="h-4 w-4" />
+                Share link
+              </button>
+              <div className="flex gap-2">
+                <button className="btn-ghost flex-1" type="button" onClick={copyLink}>
+                  <Icon name={copied ? 'check' : 'copy'} className="h-4 w-4" />
+                  {copied ? 'Copied' : 'Copy link'}
+                </button>
+                <a
+                  href={fullLink || `/q/${created.token}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-ghost flex-1"
+                >
+                  Open
+                  <Icon name="external" className="h-3.5 w-3.5" />
+                </a>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 border-t border-white/10 pt-4 sm:flex-row sm:items-center">
+              <Link href="/dashboard" className="btn-ghost w-full sm:w-auto">
                 Back to dashboard
               </Link>
               <button
-                className="btn-ghost"
+                className="btn-ghost w-full sm:w-auto"
                 type="button"
                 onClick={() => {
                   setCreated(null);
@@ -220,6 +261,8 @@ export default function NewQuestionnaire() {
           </div>
         )}
       </main>
+
+      <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }
