@@ -58,7 +58,13 @@ cp .env.example .env.local
 # fill values in .env.local
 ```
 
-### Vercel deploy (bas value daalni hai, naam pehle se ready hain):
+### Vercel deploy — simplest: ONE variable
+Add **one** variable: Key `FIREBASE_CONFIG`, Value = the Firebase web-app config snippet pasted as-is
+(`apiKey: "...", authDomain: "...", projectId: "...", ...`). Redeploy. That's it — see `VERCEL_SETUP.md`.
+You can also paste a whole `.env` block into Vercel's Key field, or use the individual names below
+(with or without `NEXT_PUBLIC_`).
+
+### Vercel deploy — individual variables (optional):
 1. Vercel Dashboard → Your Project → Settings → Environment Variables
 2. Add these exact names (from `.env.example`) — **names already defined, only values needed**:
    ```
@@ -153,6 +159,7 @@ Required by default (`*`): `basics.name`, `basics.one_liner`, `pages.pages`,
 
 ## 6. Vercel Env Architecture
 
+- `next.config.mjs` + `lib/resolve-env.mjs` resolve all accepted env styles at build time (inlined into the client bundle as `NEXT_PUBLIC_REGFORGE_ENV`)
 - Centralized env reader: `lib/env.ts` — trims values, provides defaults, exports `VERCEL_ENV_NAMES`
 - `lib/firebase.ts` reads from `lib/env.ts`, not directly from `process.env` (cleaner for Vercel)
 - `lib/access.ts` also supports env override: `NEXT_PUBLIC_OWNER_EMAIL` / `NEXT_PUBLIC_ACCESS_PIN`
